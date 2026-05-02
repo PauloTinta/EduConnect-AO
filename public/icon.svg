@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2563eb"/>
+      <stop offset="100%" style="stop-color:#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#e0e7ff;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  
+  <!-- Graduation cap top (mortarboard) -->
+  <!-- Board (square rotated 45deg visual) -->
+  <polygon points="256,100 430,185 256,270 82,185" fill="url(#cap)" opacity="0.98"/>
+  
+  <!-- Cap top center button -->
+  <circle cx="256" cy="100" r="14" fill="white" opacity="0.9"/>
+  
+  <!-- Left pillar of the gown body -->
+  <!-- Gown body -->
+  <path d="M180,200 L160,390 C158,408 170,420 190,420 L322,420 C342,420 354,408 352,390 L332,200 Z" fill="white" opacity="0.15"/>
+  
+  <!-- Gown - front center open -->
+  <path d="M195,215 L178,395 C177,406 185,416 196,416 L316,416 C327,416 335,406 334,395 L317,215 Z" fill="white" opacity="0.22"/>
+  
+  <!-- Left sleeve -->
+  <path d="M195,215 L152,280 C144,295 148,312 165,318 L193,325 L205,270 Z" fill="white" opacity="0.85"/>
+  
+  <!-- Right sleeve -->
+  <path d="M317,215 L360,280 C368,295 364,312 347,318 L319,325 L307,270 Z" fill="white" opacity="0.85"/>
+  
+  <!-- Tassel cord -->
+  <line x1="430" y1="185" x2="430" y2="255" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+  <circle cx="430" cy="268" r="12" fill="white" opacity="0.9"/>
+  <!-- Tassel fringe -->
+  <line x1="424" y1="280" x2="420" y2="310" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <line x1="430" y1="280" x2="430" y2="312" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <line x1="436" y1="280" x2="440" y2="310" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  
+  <!-- Diploma scroll hint at bottom -->
+  <rect x="218" y="340" width="76" height="52" rx="8" fill="white" opacity="0.25"/>
+  <line x1="232" y1="356" x2="280" y2="356" stroke="white" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <line x1="232" y1="366" x2="280" y2="366" stroke="white" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <line x1="232" y1="376" x2="265" y2="376" stroke="white" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+</svg>

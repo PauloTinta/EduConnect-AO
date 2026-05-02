@@ -1,0 +1,8 @@
+{
+  "name": "EduConnect",
+  "description": "Uma plataforma de aprendizagem social e colaborativa para estudantes.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
