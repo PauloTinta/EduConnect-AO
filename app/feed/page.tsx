@@ -340,11 +340,11 @@ export default function Feed() {
         .from('posts')
         .getPublicUrl(data.path);
 
-      const type: 'image' | 'video' | 'audio' = file.type.startsWith('image/') ? 'image' : 
+      const type = file.type.startsWith('image/') ? 'image' : 
                    file.type.startsWith('video/') ? 'video' : 'audio';
 
       console.log('✅ URL PÚBLICA:', publicUrl);
-      setAttachments({ type, url: publicUrl });
+      setAttachments({ type: type as any, url: publicUrl });
     } catch (err) {
       console.error('❌ ERRO NO PROCESSO DE UPLOAD:', err);
       alert('Erro ao carregar ficheiro. Verifique se o bucket "posts" existe e é público.');
@@ -433,7 +433,7 @@ export default function Feed() {
       
       const cleanHashtags = extractHashtags(newPost).map(h => h.replace('#', ''));
 
-      const payload: Record<string, unknown> = {
+      const payload: any = {
         author_id: authData.user.id,
         content: newPost.trim() || null,
         media_url: attachments?.url || null,

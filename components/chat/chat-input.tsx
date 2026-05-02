@@ -9,16 +9,15 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker from 'emoji-picker-react';
 import { VoiceRecorder } from './voice-recorder';
-import type { Message, MessageType } from '@/lib/types';
 
 interface ChatInputProps {
   onSendMessage: (content: string) => void;
-  onSendMedia: (file: File, type: MessageType) => void;
+  onSendMedia: (file: File, type: any) => void;
   onSendPoll: (question: string, options: string[]) => void;
   onSendVoice: (blob: Blob) => void;
-  replyTo?: Message | null;
+  replyTo?: any;
   onCancelReply?: () => void;
-  editingMessage?: Message | null;
+  editingMessage?: any;
   onCancelEdit?: () => void;
 }
 
@@ -27,13 +26,15 @@ export function ChatInput({
   replyTo, onCancelReply, editingMessage, onCancelEdit 
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
-  const [mediaPreview, setMediaPreview] = useState<{ file: File; url: string; type: import('@/lib/types').MessageType } | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<{ file: File, url: string, type: string } | null>(null);
   
   // Update message when editing starts
   useEffect(() => {
     if (editingMessage) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessage(editingMessage.content || '');
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessage('');
     }
   }, [editingMessage]);
@@ -68,7 +69,7 @@ export function ChatInput({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    let type: import('@/lib/types').MessageType = 'file';
+    let type = 'file';
     if (file.type.startsWith('image/')) type = 'image';
     else if (file.type.startsWith('video/')) type = 'video';
     else if (file.type.startsWith('audio/')) type = 'audio';

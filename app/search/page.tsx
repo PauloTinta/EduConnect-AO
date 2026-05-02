@@ -108,7 +108,7 @@ function SearchContent() {
     }
   };
 
-  const tabs: { id: 'all' | 'users' | 'posts' | 'communities' | 'courses'; label: string }[] = [
+  const tabs = [
     { id: 'all', label: 'Tudo' },
     { id: 'users', label: 'Pessoas' },
     { id: 'posts', label: 'Posts' },
@@ -144,7 +144,7 @@ function SearchContent() {
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setActiveTab(tab.id as any)}
             className={`flex-none px-5 py-2.5 rounded-2xl text-xs font-bold transition-all ${
               activeTab === tab.id 
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 

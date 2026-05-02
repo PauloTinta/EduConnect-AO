@@ -1,97 +1,52 @@
-# EduConnect 🎓
+# EduConnect Angola
 
 Plataforma de aprendizagem social e colaborativa para estudantes angolanos.
 
 ## Tecnologias
 
-- **Next.js 15** (App Router)
-- **React 19**
-- **Supabase** (Auth + Database + Realtime)
-- **Tailwind CSS v4**
+- **Next.js 14** (App Router)
+- **React 18**
+- **Tailwind CSS v3**
+- **Supabase** (Auth + Database + Realtime + Storage)
 - **Motion** (animações)
 - **TypeScript**
-- **PWA** (instalável em dispositivos)
 
-## Configuração Local
+## Configuração
 
 ### 1. Instalar dependências
-
 ```bash
 npm install
 ```
 
-### 2. Configurar variáveis de ambiente
+### 2. Variáveis de ambiente
 
-Crie um ficheiro `.env.local` na raiz do projecto:
-
+Crie um ficheiro `.env.local` com:
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-anon-key-aqui
+NEXT_PUBLIC_SUPABASE_URL=https://sgjzjqqntrgygixthpdm.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 ```
 
-### 3. Configurar a base de dados
-
-Execute os ficheiros SQL no painel do Supabase na seguinte ordem:
-
-1. `supabase_schema.sql`
-2. `supabase_messaging_schema.sql`
-3. `supabase_social_schema.sql`
-4. `gamification_and_fixes.sql`
-
-### 4. Iniciar o servidor de desenvolvimento
-
+### 3. Executar localmente
 ```bash
 npm run dev
 ```
 
-Abra [http://localhost:3000](http://localhost:3000) no browser.
+### 4. Build para produção
+```bash
+npm run build
+```
 
 ## Deploy no Vercel
 
-### Passo 1: Push para GitHub
+1. Faça push do código para o GitHub
+2. Conecte o repositório no [Vercel](https://vercel.com)
+3. Adicione as variáveis de ambiente no painel do Vercel
+4. Deploy!
 
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/seu-user/educonnect.git
-git push -u origin main
-```
+## Base de Dados (Supabase)
 
-### Passo 2: Importar no Vercel
-
-1. Aceda a [vercel.com](https://vercel.com)
-2. Clique em "New Project"
-3. Importe o repositório do GitHub
-4. Adicione as variáveis de ambiente:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-5. Clique em "Deploy"
-
-## PWA (Progressive Web App)
-
-O EduConnect é instalável como app em:
-- **Android**: Chrome → "Adicionar ao ecrã inicial"
-- **iOS**: Safari → Partilhar → "Adicionar ao ecrã de início"
-- **Desktop**: Chrome/Edge → Ícone de instalação na barra de endereço
-
-## Estrutura do Projecto
-
-```
-/
-├── app/               # Páginas (App Router)
-│   ├── auth/          # Login / Registo
-│   ├── feed/          # Feed social
-│   ├── home/          # Dashboard de aprendizagem
-│   ├── chat/          # Mensagens
-│   ├── profile/       # Perfil do utilizador
-│   ├── explore/       # Explorar conteúdo
-│   └── onboarding/    # Configuração inicial
-├── components/        # Componentes reutilizáveis
-├── hooks/             # Custom hooks
-├── lib/               # Utilitários e clientes
-└── public/            # Assets estáticos + PWA assets
-    ├── manifest.json  # Manifesto PWA
-    ├── sw.js          # Service Worker
-    └── icons/         # Ícones PWA
-```
+Execute os ficheiros SQL na seguinte ordem:
+1. `supabase_schema.sql`
+2. `supabase_social_schema.sql`
+3. `supabase_messaging_schema.sql`
+4. `gamification_and_fixes.sql`

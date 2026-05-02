@@ -1,7 +1,8 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
-  /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 5px;
   }
@@ -15,45 +16,6 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
   }
-
-  /* PWA safe area support */
-  html {
-    height: -webkit-fill-available;
-  }
-
-  body {
-    min-height: 100vh;
-    min-height: -webkit-fill-available;
-    /* Prevent text size adjust on orientation change */
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-    /* Better font rendering */
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  /* Safe area insets for PWA/notch devices */
-  .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .pt-safe {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
-  .pl-safe {
-    padding-left: env(safe-area-inset-left, 0px);
-  }
-  .pr-safe {
-    padding-right: env(safe-area-inset-right, 0px);
-  }
-
-  /* Prevent horizontal overflow on mobile */
-  * {
-    box-sizing: border-box;
-  }
-  
-  img, video {
-    max-width: 100%;
-  }
 }
 
 @keyframes slow-pulse {
@@ -63,4 +25,13 @@
 
 .animate-slow-pulse {
   animation: slow-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }

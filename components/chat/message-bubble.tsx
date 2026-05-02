@@ -8,9 +8,22 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { PollMessage } from './poll-message';
-import type { Message } from '@/lib/types';
 
-export type { Message };
+interface Message {
+  id: string;
+  sender_id: string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'voice' | 'poll';
+  content?: string;
+  media_url?: string;
+  poll_data?: any;
+  created_at: string;
+  seen_at?: string;
+  reply_to?: string;
+  deleted_at?: string;
+  updated_at?: string;
+  replied_message?: Message;
+  reactions?: { emoji: string; count: number; users: string[] }[];
+}
 
 interface MessageBubbleProps {
   msg: Message;
@@ -35,12 +48,13 @@ export function MessageBubble({
   const [showMenu, setShowMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
+  // Swipe to reply logic
   const x = useMotionValue(0);
   const swipeThreshold = 60;
   const opacity = useTransform(x, [0, swipeThreshold], [0, 1]);
   const scale = useTransform(x, [0, swipeThreshold], [0.8, 1.2]);
 
-  const handleDragEnd = (_: React.MouseEvent, info: { offset: { x: number } }) => {
+  const handleDragEnd = (_: any, info: any) => {
     if (info.offset.x > swipeThreshold) {
       onReply(msg);
     }
@@ -111,7 +125,7 @@ export function MessageBubble({
               )}
 
               {msg.type === 'file' && (
-                <a href={msg.media_url} target="_blank" rel="noreferrer" className={`flex items-center gap-3 p-3 rounded-xl ${isMe ? 'bg-white/10' : 'bg-slate-50'} border border-transparent hover:border-blue-200 transition-colors`}>
+                <a href={msg.media_url} target="_blank" className={`flex items-center gap-3 p-3 rounded-xl ${isMe ? 'bg-white/10' : 'bg-slate-50'} border border-transparent hover:border-blue-200 transition-colors`}>
                   <Paperclip size={20} className={isMe ? 'text-white' : 'text-blue-600'} />
                   <div className="text-sm truncate">
                     <p className="font-bold truncate">Ficheiro</p>
@@ -172,6 +186,7 @@ export function MessageBubble({
               </button>
             </div>
 
+            {/* Emoji Picker Popup */}
             <AnimatePresence>
               {showEmojiPicker && (
                 <motion.div 
@@ -193,6 +208,7 @@ export function MessageBubble({
               )}
             </AnimatePresence>
 
+            {/* Actions Menu */}
             <AnimatePresence>
               {showMenu && (
                 <>
