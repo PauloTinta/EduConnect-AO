@@ -62,6 +62,17 @@ export default function ChatRoom() {
     bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' });
   }, []);
 
+  const isDuplicateMessage = (existing: Message, candidate: Partial<Message>) => {
+    if (!existing.conversation_id || !candidate.conversation_id) return false;
+    if (existing.conversation_id !== candidate.conversation_id) return false;
+    if (existing.sender_id !== candidate.sender_id) return false;
+    if (existing.content !== candidate.content) return false;
+
+    const existingTime = new Date(existing.created_at).getTime();
+    const candidateTime = new Date(candidate.created_at || 0).getTime();
+    return Math.abs(existingTime - candidateTime) < 3000;
+  };
+
   useEffect(() => {
     if (!conversationId || !user) return;
     let isMounted = true;
@@ -104,13 +115,26 @@ export default function ChatRoom() {
           const newMsg = payload.new as Message;
           setMessages(prev => {
             if (prev.some(m => m.id === newMsg.id)) return prev;
-            if (newMsg.sender_id === user!.id) {
-              const filtered = prev.filter(m => !(m.id.startsWith('temp-') && m.content === newMsg.content));
-              return [...filtered, { ...newMsg, reactions: [] }];
-            }
-            return [...prev, { ...newMsg, reactions: [] }];
+
+            const replaced = prev.map(m => {
+              if (m.id.startsWith('temp-') && isDuplicateMessage(m, newMsg)) {
+                return { ...newMsg, reactions: [] };
+              }
+              return m;
+            });
+
+            if (replaced.some(m => m.id === newMsg.id)) return replaced;
+            return [...replaced, { ...newMsg, reactions: [] }];
           });
           if (newMsg.sender_id !== user!.id) markMessagesAsSeen(conversationId, user!.id);
+        });
+
+        channel.on('broadcast', { event: 'new-message' }, ({ payload }: any) => {
+          if (!isMounted || payload.sender_id === user!.id) return;
+          setMessages(prev => {
+            if (prev.some(m => m.id === payload.id || isDuplicateMessage(m, payload))) return prev;
+            return [...prev, { ...payload, reactions: [] }];
+          });
         });
 
         // Updates (edit, delete, seen)
@@ -229,6 +253,13 @@ export default function ChatRoom() {
 
     setMessages(prev => [...prev, tempMsg]);
     setReplyTo(null);
+    scrollToBottom();
+
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'new-message',
+      payload: tempMsg
+    });
 
     const { error } = await supabase.from('messages').insert({
       conversation_id: conversationId, sender_id: user.id,
