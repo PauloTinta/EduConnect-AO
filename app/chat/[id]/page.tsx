@@ -67,17 +67,6 @@ export default function ChatRoom() {
     setActiveMessageId(id);
   }, []);
 
-  const isDuplicateMessage = useCallback((existing: Message, candidate: Partial<Message>) => {
-    if (!existing.conversation_id || !candidate.conversation_id) return false;
-    if (existing.conversation_id !== candidate.conversation_id) return false;
-    if (existing.sender_id !== candidate.sender_id) return false;
-    if (existing.content !== candidate.content) return false;
-
-    const existingTime = new Date(existing.created_at).getTime();
-    const candidateTime = new Date(candidate.created_at || 0).getTime();
-    return Math.abs(existingTime - candidateTime) < 3000;
-  }, []);
-
   const refreshMessageReactions = useCallback(async (messageId: string) => {
     const { data } = await supabase
       .from('message_reactions')
@@ -109,28 +98,14 @@ export default function ChatRoom() {
       if (exists) {
         return prev.map(m =>
           m.id === newMsg.id
-            ? {
-                ...m,
-                ...newMsg,
-                reactions: m.reactions ?? []
-              }
+            ? { ...m, ...newMsg, reactions: m.reactions || [] }
             : m
         );
       }
 
-      const replaced = prev.map(m => {
-        if (m.id.startsWith('temp-') && isDuplicateMessage(m, newMsg)) {
-          return {
-            ...newMsg,
-            reactions: []
-          };
-        }
-        return m;
-      });
-
-      return [...replaced, { ...newMsg, reactions: [] }];
+      return [...prev, { ...newMsg, reactions: [] }];
     });
-  }, [isDuplicateMessage]);
+  }, []);
 
   useEffect(() => {
     if (!conversationId || !user) return;
@@ -161,8 +136,11 @@ export default function ChatRoom() {
 
         if (!isMounted) return;
 
-        const channel = supabase.channel(`chat:${conversationId}`, {
-          config: { broadcast: { self: false }, presence: { key: user!.id } }
+        const channel = supabase.channel(`chat-room-${conversationId}`, {
+          config: {
+            broadcast: { self: false },
+            presence: { key: user.id }
+          }
         });
 
         // New messages
@@ -174,11 +152,13 @@ export default function ChatRoom() {
           if (!isMounted) return;
           const newMsg = payload.new as Message;
           if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
-          if (newMsg.id.startsWith('temp-')) return;
-          upsertMessage({
-            ...newMsg,
-            reactions: newMsg.reactions || []
+
+          setMessages(prev => {
+            const exists = prev.some(m => m.id === newMsg.id);
+            if (exists) return prev;
+            return [...prev, { ...newMsg, reactions: [] }];
           });
+
           if (newMsg.sender_id !== user!.id) markMessagesAsSeen(conversationId, user!.id);
         });
 
@@ -196,8 +176,7 @@ export default function ChatRoom() {
               return {
                 ...m,
                 ...updated,
-                reactions: m.reactions ?? [],
-                message_reactions: (m as any).message_reactions ?? []
+                reactions: m.reactions ?? []
               } as Message;
             })
           );
