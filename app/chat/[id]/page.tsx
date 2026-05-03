@@ -154,10 +154,22 @@ export default function ChatRoom() {
           if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
 
           setMessages(prev => {
-            const exists = prev.some(m => m.id === newMsg.id);
-            if (exists) return prev;
-            return [...prev, { ...newMsg, reactions: [] }];
-          });
+  const exists = prev.some(m => m.id === newMsg.id);
+  if (exists) return prev;
+
+  // remove mensagens temporárias duplicadas
+  const filtered = prev.filter(m => {
+    if (!m.id.startsWith('temp-')) return true;
+
+    // compara conteúdo para substituir corretamente
+    return !(
+      m.content === newMsg.content &&
+      m.sender_id === newMsg.sender_id
+    );
+  });
+
+  return [...filtered, { ...newMsg, reactions: [] }];
+});
 
           if (newMsg.sender_id !== user!.id) markMessagesAsSeen(conversationId, user!.id);
         });
