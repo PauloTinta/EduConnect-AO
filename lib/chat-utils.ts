@@ -149,56 +149,76 @@ export async function editMessage(messageId: string, newContent: string) {
  * Busca todas as conversas do usuário com o último detalhe.
  */
 export async function getUserConversations(userId: string) {
-  const { data: memberData, error } = await supabase
+  // 1. Buscar participações do usuário
+  const { data: members, error: mError } = await supabase
     .from('conversation_members')
-    .select(`
-      conversation_id,
-      conversations:conversations!inner(
-        id,
-        created_at,
-        created_by,
-        last_message:messages(content, created_at, sender_id, type)
-      )
-    `)
+    .select('conversation_id, user_id')
     .eq('user_id', userId);
 
-  if (error) throw error;
+  if (mError) {
+    console.error('MEMBERS ERROR:', mError);
+    return [];
+  }
 
-  // Obter detalhes dos outros participantes para cada conversa
-  const conversations = await Promise.all((memberData || []).map(async (m: any) => {
-    const convId = m.conversation_id;
-    const { data: otherMembers } = await supabase
-      .from('conversation_members')
-      .select('user_id, profiles(full_name, avatar_url, username, last_seen)')
-      .eq('conversation_id', convId);
+  if (!members || members.length === 0) {
+    console.log('NO CONVERSATIONS FOUND');
+    return [];
+  }
 
-    const otherMember = (otherMembers || []).find((om: any) => om.user_id !== userId);
-    
-    // Unread count
-    const { count } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('conversation_id', convId)
-      .neq('sender_id', userId)
-      .is('seen_at', null);
+  const conversationIds = members.map((m: any) => m.conversation_id);
 
-    // Last message processing
-    const lastMsgs = m.conversations.last_message || [];
-    const lastMsg = lastMsgs.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  // 2. Buscar conversas com membros + mensagens
+  const { data, error } = await supabase
+    .from('conversations')
+    .select(`
+      id,
+      conversation_members (
+        user_id,
+        profiles (
+          id,
+          full_name,
+          username,
+          avatar_url
+        )
+      ),
+      messages (
+        id,
+        content,
+        created_at,
+        sender_id,
+        type,
+        seen_at
+      )
+    `)
+    .in('id', conversationIds);
 
-    return {
-      id: convId,
-      otherParticipant: otherMember?.profiles,
-      otherParticipantId: otherMember?.user_id,
-      lastMessage: lastMsg?.content || (lastMsg?.type === 'image' ? '🖼 Foto' : '📎 Media'),
-      lastMessageTime: lastMsg?.created_at,
-      unreadCount: count || 0
-    };
-  }));
+  if (error) {
+    console.error('CONVERSATION ERROR:', error);
+    return [];
+  }
 
-  return conversations.sort((a, b) => {
-    const timeA = new Date(a.lastMessageTime || 0).getTime();
-    const timeB = new Date(b.lastMessageTime || 0).getTime();
-    return timeB - timeA;
-  });
+  return (data || [])
+    .map((conv: any) => {
+      const other = conv.conversation_members.find(
+        (m: any) => m.user_id !== userId
+      )?.profiles;
+
+      const sortedMessages = [...(conv.messages || [])].sort(
+        (a: any, b: any) =>
+          new Date(a.created_at).getTime() -
+          new Date(b.created_at).getTime()
+      );
+
+      const lastMsg = sortedMessages[sortedMessages.length - 1];
+
+      return {
+        id: conv.id,
+        otherParticipant: other || null,
+        lastMessage: lastMsg?.content || '',
+        lastMessageTime: lastMsg?.created_at || null,
+        lastMessageSenderId: lastMsg?.sender_id || null,
+        unreadCount: 0
+      };
+    })
+    .filter((c) => c.otherParticipant);
 }

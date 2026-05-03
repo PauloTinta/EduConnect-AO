@@ -8,6 +8,7 @@ import { Search, Plus, Archive, Tag, Users, Loader2, MessageCircle } from 'lucid
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
+import { supabase } from '@/lib/supabase';
 import { getUserConversations } from '@/lib/chat-utils';
 
 export default function ChatList() {
@@ -19,7 +20,8 @@ export default function ChatList() {
 
   useEffect(() => {
     if (!user) return;
-    
+    let channel: any;
+
     async function load() {
       try {
         const data = await getUserConversations(user!.id);
@@ -30,12 +32,60 @@ export default function ChatList() {
         setLoading(false);
       }
     }
+
     load();
+
+    channel = supabase
+      .channel(`chat-list-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload: any) => {
+          const newMessage = payload.new;
+          setConversations((prev) => {
+            const updated = [...prev];
+            const index = updated.findIndex(
+              (c) => c.id === newMessage.conversation_id
+            );
+
+            if (index !== -1) {
+              const chat = { ...updated[index] };
+              chat.lastMessage = newMessage.content;
+              chat.lastMessageTime = newMessage.created_at;
+              chat.lastMessageSenderId = newMessage.sender_id;
+
+              if (newMessage.sender_id !== user.id) {
+                chat.unreadCount = (chat.unreadCount || 0) + 1;
+              }
+
+              updated.splice(index, 1);
+              updated.unshift(chat);
+            }
+
+            return updated;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [user]);
 
   const filteredConversations = conversations.filter(c => 
     c.otherParticipant?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     c.otherParticipant?.username?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const sortedConversations = [...filteredConversations].sort(
+    (a, b) => new Date(b.lastMessageTime || 0).getTime() - new Date(a.lastMessageTime || 0).getTime()
   );
 
   return (
@@ -71,22 +121,27 @@ export default function ChatList() {
               <Loader2 className="animate-spin text-blue-600" size={32} />
               <p className="text-xs font-bold uppercase tracking-widest">Carregando mensagens...</p>
             </div>
-          ) : filteredConversations.length === 0 ? (
+          ) : sortedConversations.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full px-12 text-center">
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-[32px] flex items-center justify-center mb-6">
                 <MessageCircle size={36} />
               </div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2">Sem conversas ainda</h3>
-              <p className="text-sm text-slate-400">Inicia uma nova conversa para começares a partilhar conhecimento.</p>
+              <h3 className="text-lg font-bold text-slate-800 mb-2">
+                Ainda não tens conversas
+              </h3>
+              <p className="text-sm text-slate-400">
+                Envia a tua primeira mensagem e começa a conversar com outros estudantes.
+              </p>
             </div>
           ) : (
             <div className="divide-y divide-slate-50">
-              {filteredConversations.map((chat) => (
+              {sortedConversations.map((chat) => (
                 <motion.div 
                   key={chat.id}
-                  whileTap={{ backgroundColor: '#F8FAFC', scale: 0.99 }}
+                  whileTap={{ scale: 0.97 }}
+                  whileHover={{ backgroundColor: '#F1F5F9' }}
                   onClick={() => router.push(`/chat/${chat.id}`)}
-                  className="flex items-center gap-4 p-4 cursor-pointer group hover:bg-slate-50/50 transition-colors relative"
+                  className="flex items-center gap-4 p-4 cursor-pointer group transition-all duration-200 rounded-3xl"
                 >
                   <div className="relative flex-shrink-0">
                     <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-slate-100 transition-transform group-hover:scale-105 duration-300">
@@ -98,22 +153,27 @@ export default function ChatList() {
                         unoptimized
                       />
                     </div>
+                    {chat.otherParticipant?.isOnline && (
+                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
+                    )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start mb-0.5">
-                      <h3 className="font-bold text-slate-800 text-[15px] truncate leading-tight tracking-tight">
+                    <div className="flex justify-between items-center gap-3 mb-1">
+                      <h3 className="font-semibold text-slate-900 text-[15px] truncate leading-tight tracking-tight">
                         {chat.otherParticipant?.full_name || 'Usuário'}
                       </h3>
                       {chat.lastMessageTime && (
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${chat.unreadCount > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
+                        <span className={`text-[10px] uppercase tracking-wider ${chat.unreadCount > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
                           {new Date(chat.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-between gap-2 mt-1">
-                      <p className={`text-sm truncate leading-snug flex-1 ${chat.unreadCount > 0 ? 'text-slate-900 font-bold' : 'text-slate-400 font-medium'}`}>
-                        {chat.lastMessage || 'Nenhuma mensagem'}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={`text-sm truncate leading-snug flex-1 ${chat.unreadCount > 0 ? 'text-slate-900 font-semibold' : 'text-slate-500'}`}>
+                        {chat.lastMessageSenderId === user?.id
+                          ? `Você: ${chat.lastMessage}`
+                          : chat.lastMessage || 'Nenhuma mensagem'}
                       </p>
                       
                       {chat.unreadCount > 0 && (

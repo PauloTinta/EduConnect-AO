@@ -1,8 +1,8 @@
-// File: /workspaces/EduConnect-AO/app/feed/page.tsx
-import * as entry from '../../../../app/feed/page.js'
+// File: /workspaces/EduConnect-AO/app/chat/page.tsx
+import * as entry from '../../../../app/chat/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
-type TEntry = typeof import('../../../../app/feed/page.js')
+type TEntry = typeof import('../../../../app/chat/page.js')
 
 type SegmentParams<T extends Object = any> = T extends Record<string, any>
   ? { [K in keyof T]: T[K] extends string ? string | string[] | undefined : never }
