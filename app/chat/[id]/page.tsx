@@ -84,10 +84,17 @@ export default function ChatRoom() {
       .select('message_id, emoji, user_id')
       .eq('message_id', messageId);
 
-    if (!data) return;
-
-    const reactions = processReactions(data);
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+    const reactions = processReactions(data || []);
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === messageId
+          ? {
+              ...m,
+              reactions
+            }
+          : m
+      )
+    );
   }, []);
 
   const upsertMessage = useCallback((newMsg: Message) => {
@@ -161,7 +168,17 @@ export default function ChatRoom() {
         }, (payload: any) => {
           if (!isMounted) return;
           const updated = payload.new as Message;
-          upsertMessage(updated);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === updated.id
+                ? {
+                    ...m,
+                    ...updated,
+                    reactions: m.reactions || [],
+                  }
+                : m
+            )
+          );
         });
 
         // Reactions
@@ -170,7 +187,7 @@ export default function ChatRoom() {
         }, async (payload: any) => {
           if (!isMounted) return;
           const messageId = payload.new?.message_id || payload.old?.message_id;
-          if (!messageId || !messageIdsRef.current.includes(messageId)) return;
+          if (!messageId) return;
           await refreshMessageReactions(messageId);
         });
 
@@ -220,17 +237,31 @@ export default function ChatRoom() {
 
   const handleTyping = useCallback(() => {
     if (!channelRef.current || !user) return;
+
     channelRef.current.send({
-      type: 'broadcast', event: 'typing',
-      payload: { userId: user.id, userName: user.user_metadata?.full_name || 'Alguém', typing: true }
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        userId: user.id,
+        userName: user.user_metadata?.full_name || 'Alguém',
+        typing: true
+      }
     });
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
     typingTimeoutRef.current = setTimeout(() => {
       channelRef.current?.send({
-        type: 'broadcast', event: 'typing',
-        payload: { userId: user.id, typing: false }
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          userId: user.id,
+          typing: false
+        }
       });
-    }, 2500);
+    }, 1200);
   }, [user]);
 
   const handleReact = async (messageId: string, emoji: string) => {
