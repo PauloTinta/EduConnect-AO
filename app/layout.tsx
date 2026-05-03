@@ -53,6 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </div>
         </AuthProvider>
+        <div id="portal-root"></div>
       </body>
     </html>
   );

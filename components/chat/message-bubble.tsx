@@ -1,30 +1,18 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence, useMotionValue, useTransform, useAnimation } from 'motion/react';
 import { 
   Check, CheckCheck, Trash2, Edit2, Reply, 
   Paperclip, Smile, MoreVertical,
   Play, Pause, Mic
 } from 'lucide-react';
 import Image from 'next/image';
+import { createPortal } from 'react-dom';
 import { PollMessage } from './poll-message';
+import { Message } from '@/lib/chat-types';
 
-interface Message {
-  id: string;
-  sender_id: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'voice' | 'poll';
-  content?: string;
-  media_url?: string;
-  poll_data?: any;
-  created_at: string;
-  seen_at?: string;
-  reply_to?: string;
-  deleted_at?: string;
-  updated_at?: string;
-  replied_message?: Message;
-  reactions?: { emoji: string; count: number; users: string[] }[];
-}
+const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
 interface MessageBubbleProps {
   msg: Message;
@@ -37,9 +25,208 @@ interface MessageBubbleProps {
   onReact: (id: string, emoji: string) => void;
   otherParticipantName?: string;
   currentUserId: string;
+  resetPosition?: number;
+  activeMessageId: string | null;
+  setActiveMessageId: (id: string | null) => void;
 }
 
-const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+function MessageVisual({ msg, isMe, isFirstInGroup, isLastInGroup, otherParticipantName, currentUserId }: {
+
+  msg: Message;
+
+  isMe: boolean;
+
+  isFirstInGroup: boolean;
+
+  isLastInGroup: boolean;
+
+  otherParticipantName?: string;
+
+  currentUserId: string;
+
+}) {
+
+  const bubbleBase = `relative max-w-[75%] sm:max-w-[68%] select-none break-words`;
+
+  const bubbleIsMe = `bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-sm hover:shadow-md
+
+    ${isFirstInGroup ? 'rounded-[20px] rounded-tr-[5px]' : 'rounded-[20px]'}
+
+    ${!isLastInGroup ? 'rounded-br-[8px]' : ''}`;
+
+  const bubbleOther = `bg-white text-slate-800 border border-slate-100 shadow-sm hover:shadow-md
+
+    ${isFirstInGroup ? 'rounded-[20px] rounded-tl-[5px]' : 'rounded-[20px]'}
+
+    ${!isLastInGroup ? 'rounded-bl-[8px]' : ''}`;
+
+  const hasReactions = msg.reactions && msg.reactions.length > 0;
+
+  return (
+
+    <div className={`${bubbleBase} ${isMe ? bubbleIsMe : bubbleOther} scale-105 shadow-2xl`}>
+
+      {/* Reply preview */}
+
+      {msg.replied_message && (
+
+        <div className={`mx-2 mt-2 mb-1 p-2 rounded-xl text-[11px] border-l-[3px] overflow-hidden ${
+
+          isMe ? 'bg-black/15 border-white/50 text-blue-50' : 'bg-blue-50 border-blue-500 text-slate-500'
+
+        }`}>
+
+          <p className="font-black text-[9px] uppercase tracking-wider opacity-80 mb-0.5">
+
+            {msg.replied_message.sender_id === currentUserId ? 'Tu' : otherParticipantName}
+
+          </p>
+
+          <p className="truncate opacity-75 font-medium">{msg.replied_message.content || '📎 Mídia'}</p>
+
+        </div>
+
+      )}
+
+      <div className="px-3.5 py-2">
+
+        {msg.deleted_at ? (
+
+          <p className="italic opacity-50 flex items-center gap-2 py-0.5 text-sm">
+
+            <Trash2 size={13} /> Mensagem apagada
+
+          </p>
+
+        ) : (
+
+          <>
+
+            {msg.type === 'text' && (
+
+              <p className="leading-relaxed whitespace-pre-wrap text-[15px] font-medium break-words">{msg.content}</p>
+
+            )}
+
+            {msg.type === 'image' && (
+
+              <div className="rounded-xl overflow-hidden mb-1 -mx-1">
+
+                <Image src={msg.media_url!} alt="Imagem" width={400} height={300} className="w-full h-auto max-h-72 object-cover" unoptimized />
+
+              </div>
+
+            )}
+
+            {msg.type === 'video' && (
+
+              <div className="rounded-xl overflow-hidden mb-1 bg-black -mx-1">
+
+                <video src={msg.media_url} controls className="w-full max-h-72" />
+
+              </div>
+
+            )}
+
+            {(msg.type === 'voice' || msg.type === 'audio') && msg.media_url && (
+
+              <TelegramVoicePlayer src={msg.media_url} isMe={isMe} />
+
+            )}
+
+            {msg.type === 'file' && (
+
+              <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+
+                className={`flex items-center gap-3 p-3 rounded-xl -mx-1 transition-colors ${isMe ? 'bg-white/10 hover:bg-white/20' : 'bg-slate-50 hover:bg-slate-100'}`}>
+
+                <Paperclip size={20} className={isMe ? 'text-white/80' : 'text-blue-600'} />
+
+                <div className="text-sm truncate">
+
+                  <p className="font-bold">Ficheiro</p>
+
+                  <p className="opacity-60 text-[10px]">Baixar</p>
+
+                </div>
+
+              </a>
+
+            )}
+
+            {msg.type === 'poll' && msg.poll_data && (
+
+              <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
+
+            )}
+
+          </>
+
+        )}
+
+        {/* Time */}
+
+        <div className={`flex items-center justify-end gap-1 mt-1 ${isMe ? 'text-blue-200' : 'text-slate-400'}`}>
+
+          {msg.updated_at && !msg.deleted_at && (
+
+            <span className="text-[9px] italic opacity-75 mr-1">editada</span>
+
+          )}
+
+          <span className="text-[10px] font-bold">
+
+            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+          </span>
+
+          {isMe && !msg.deleted_at && (
+
+            <span className="ml-0.5">
+
+              {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
+
+            </span>
+
+          )}
+
+        </div>
+
+        {/* Reactions */}
+
+        {hasReactions && (
+
+          <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
+
+            {msg.reactions!.map((r, i) => (
+
+              <button key={i} onClick={() => {}} // disabled in clone
+
+                className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[13px] border bg-white shadow-sm transition-all active:scale-90 ${
+
+                  r.users.includes(currentUserId) ? 'border-blue-300 bg-blue-50' : 'border-slate-100'
+
+                }`}>
+
+                {r.emoji}
+
+                {r.count > 1 && <span className="text-[10px] font-black text-slate-600 ml-0.5">{r.count}</span>}
+
+              </button>
+
+            ))}
+
+          </div>
+
+        )}
+
+      </div>
+
+    </div>
+
+  );
+
+}
 
 function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [playing, setPlaying] = useState(false);
@@ -115,23 +302,77 @@ function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
 export function MessageBubble({ 
   msg, isMe, isFirstInGroup, isLastInGroup, 
   onReply, onEdit, onDelete, onReact,
-  otherParticipantName, currentUserId 
+  otherParticipantName, currentUserId, resetPosition,
+  activeMessageId, setActiveMessageId
 }: MessageBubbleProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const x = useMotionValue(0);
+  const controls = useAnimation();
   const replyOpacity = useTransform(x, isMe ? [-60, 0] : [0, 60], [1, 0]);
   const replyScale = useTransform(x, isMe ? [-60, 0] : [0, 60], [1.2, 0.8]);
 
+  const messageRef = useRef<HTMLDivElement>(null);
+  const [messageRect, setMessageRect] = useState<any>(null);
+  const portalRoot = typeof document !== 'undefined' ? document.getElementById('portal-root') : null;
+
+  const isActive = activeMessageId === msg.id;
+
+  const handleActivate = () => {
+    const rect = messageRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMessageRect(rect);
+      setActiveMessageId(msg.id);
+    }
+  };
+
+  const handleClose = useCallback(() => {
+    setActiveMessageId(null);
+  }, [setActiveMessageId]);
+
+  useEffect(() => {
+    if (resetPosition !== undefined) {
+      controls.start({ x: 0 });
+    }
+  }, [resetPosition, controls]);
+
+  const handlePressStart = () => {
+    pressTimerRef.current = setTimeout(() => {
+      setActiveMessageId(msg.id);
+    }, 500);
+  };
+
+  const handlePressEnd = () => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isActive) {
+      handleClose();
+    } else {
+      handleActivate();
+    }
+  };
+
   const handleDragEnd = (_: any, info: any) => {
-    const triggered = isMe ? info.offset.x < -50 : info.offset.x > 50;
+    setIsSwiping(false);
+    const threshold = 60;
+    const triggered = isMe ? info.offset.x < -threshold : info.offset.x > threshold;
     if (triggered) onReply(msg);
-    x.set(0);
+    controls.start({ x: 0 });
+    setActiveMessageId(null); // Close active message on swipe
   };
 
   const hasReactions = msg.reactions && msg.reactions.length > 0;
 
-  const bubbleBase = `relative group max-w-[82%] sm:max-w-[68%] select-none`;
+  const bubbleBase = `relative max-w-[75%] sm:max-w-[68%] select-none break-words`;
   const bubbleIsMe = `bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-sm hover:shadow-md
     ${isFirstInGroup ? 'rounded-[20px] rounded-tr-[5px]' : 'rounded-[20px]'}
     ${!isLastInGroup ? 'rounded-br-[8px]' : ''}`;
@@ -140,9 +381,17 @@ export function MessageBubble({
     ${!isLastInGroup ? 'rounded-bl-[8px]' : ''}`;
 
   return (
-    <div className={`relative flex items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'}`}>
+    <div
+      ref={wrapperRef}
+      className={`group relative ${isActive ? 'z-[60]' : 'z-10'} flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'}`}
+      onMouseDown={handlePressStart}
+      onMouseUp={handlePressEnd}
+      onTouchStart={handlePressStart}
+      onTouchEnd={handlePressEnd}
+      onClick={handleClick}
+    >
       {/* Swipe indicator */}
-      {!msg.deleted_at && (
+      {!msg.deleted_at && isSwiping && (
         <motion.div
           style={{ opacity: replyOpacity, scale: replyScale }}
           className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none`}
@@ -152,12 +401,17 @@ export function MessageBubble({
       )}
 
       <motion.div
+        ref={messageRef}
         drag={!msg.deleted_at ? 'x' : false}
-        dragConstraints={{ left: isMe ? -80 : 0, right: isMe ? 0 : 80 }}
-        dragElastic={0.1}
+        dragConstraints={{ left: isMe ? -100 : 0, right: isMe ? 0 : 100 }}
+        dragElastic={0.2}
+        onDragStart={() => {
+          setIsSwiping(true);
+          setActiveMessageId(null);
+        }}
         onDragEnd={handleDragEnd}
-        style={{ x }}
-        className={`${bubbleBase} ${isMe ? bubbleIsMe : bubbleOther}`}
+        animate={controls}
+        className={`${bubbleBase} ${isMe ? bubbleIsMe : bubbleOther} transition-transform duration-200`}
       >
         {/* Reply preview */}
         {msg.replied_message && (
@@ -179,7 +433,7 @@ export function MessageBubble({
           ) : (
             <>
               {msg.type === 'text' && (
-                <p className="leading-relaxed whitespace-pre-wrap text-[15px] font-medium">{msg.content}</p>
+                <p className="leading-relaxed whitespace-pre-wrap text-[15px] font-medium break-words">{msg.content}</p>
               )}
               {msg.type === 'image' && (
                 <div className="rounded-xl overflow-hidden mb-1 -mx-1">
@@ -240,86 +494,93 @@ export function MessageBubble({
             </div>
           )}
         </div>
-
-        {/* Desktop hover actions */}
-        {!msg.deleted_at && (
-          <div className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 hidden sm:flex items-center gap-1 ${isMe ? 'right-full mr-2' : 'left-full ml-2'}`}>
-            <button onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowMenu(false); }}
-              className="w-8 h-8 rounded-full bg-white border border-slate-100 flex items-center justify-center text-slate-400 hover:text-yellow-500 shadow-sm transition-all">
-              <Smile size={16} />
-            </button>
-            <button onClick={() => { setShowMenu(!showMenu); setShowEmojiPicker(false); }}
-              className="w-8 h-8 rounded-full bg-white border border-slate-100 flex items-center justify-center text-slate-400 hover:text-blue-600 shadow-sm transition-all">
-              <MoreVertical size={16} />
-            </button>
-          </div>
-        )}
-
-        {/* Mobile long-press menu button */}
-        {!msg.deleted_at && (
-          <button onClick={() => setShowMenu(true)}
-            className={`absolute -top-1 sm:hidden ${isMe ? 'right-full mr-1' : 'left-full ml-1'} w-6 h-6 rounded-full bg-white/90 border border-slate-100 flex items-center justify-center text-slate-400 shadow-sm opacity-0 active:opacity-100 transition-opacity`}>
-            <MoreVertical size={12} />
-          </button>
-        )}
-
-        {/* Emoji picker popup */}
-        <AnimatePresence>
-          {showEmojiPicker && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 6 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className={`absolute bottom-full mb-2 z-[80] bg-white rounded-full shadow-xl border border-slate-100 flex items-center gap-0.5 px-2 py-1.5 ${isMe ? 'right-0' : 'left-0'}`}
-            >
-              <div className="fixed inset-0 z-[-1]" onClick={() => setShowEmojiPicker(false)} />
-              {EMOJIS.map(emoji => (
-                <button key={emoji} onClick={() => { onReact(msg.id, emoji); setShowEmojiPicker(false); }}
-                  className="w-9 h-9 rounded-full hover:bg-slate-50 flex items-center justify-center text-[20px] transition-transform active:scale-125">
-                  {emoji}
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Actions menu */}
-        <AnimatePresence>
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-[70]" onClick={() => setShowMenu(false)} />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 6 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className={`absolute bottom-full mb-2 w-44 bg-white rounded-[20px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden z-[80] ${isMe ? 'right-0' : 'left-0'}`}
-              >
-                {/* Mobile emoji row */}
-                <div className="flex justify-around px-2 py-2.5 border-b border-slate-50 sm:hidden">
-                  {EMOJIS.map(emoji => (
-                    <button key={emoji} onClick={() => { onReact(msg.id, emoji); setShowMenu(false); }}
-                      className="text-[20px] active:scale-125 transition-transform">
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-
-                {[
-                  { icon: Reply, label: 'Responder', onClick: () => onReply(msg), color: 'text-slate-700' },
-                  { icon: Edit2, label: 'Editar', onClick: () => onEdit(msg), color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
-                  { icon: Trash2, label: 'Apagar', onClick: () => onDelete(msg.id), color: 'text-red-500' },
-                ].filter(item => !item.hide).map((item, i) => (
-                  <button key={i} onClick={() => { item.onClick(); setShowMenu(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold hover:bg-slate-50 transition-colors border-b last:border-0 border-slate-50 ${item.color}`}>
-                    <item.icon size={16} />
-                    {item.label}
-                  </button>
-                ))}
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
       </motion.div>
+
+      {/* Portal overlay */}
+      {isActive && portalRoot && createPortal(
+        <div
+          className="fixed inset-0 backdrop-blur-md bg-black/10 z-40 transition-opacity duration-200"
+          onClick={handleClose}
+        />,
+        portalRoot
+      )}
+
+      {/* Portal message clone */}
+      {isActive && portalRoot && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: messageRect?.top || 0,
+            left: messageRect?.left || 0,
+            width: messageRect?.width || 0
+          }}
+          className="z-50"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MessageVisual
+            msg={msg}
+            isMe={isMe}
+            isFirstInGroup={isFirstInGroup}
+            isLastInGroup={isLastInGroup}
+            otherParticipantName={otherParticipantName}
+            currentUserId={currentUserId}
+          />
+        </div>,
+        portalRoot
+      )}
+
+      {/* Portal reactions */}
+      {isActive && portalRoot && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: (messageRect?.top || 0) - 50,
+            left: Math.max(20, Math.min((messageRect?.left || 0) + (messageRect?.width || 0) / 2, window.innerWidth - 140)),
+            transform: "translateX(-50%)"
+          }}
+          className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2 z-50"
+        >
+          {["👍","❤️","😂","🔥"].map(emoji => (
+            <button key={emoji} onClick={(e) => { e.stopPropagation(); onReact(msg.id, emoji); handleClose(); }}>
+              {emoji}
+            </button>
+          ))}
+        </div>,
+        portalRoot
+      )}
+
+      {/* Portal menu */}
+      {isActive && portalRoot && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: (messageRect?.top || 0) + (messageRect?.height || 0) + 10,
+            left: Math.max(20, Math.min((messageRect?.left || 0) + (messageRect?.width || 0) / 2, window.innerWidth - 140)),
+            transform: "translateX(-50%)"
+          }}
+          className="bg-white rounded-lg shadow-xl p-2 flex flex-col z-50 min-w-[140px]"
+        >
+          {[
+            { icon: Reply, label: 'Responder', onClick: () => onReply(msg), color: 'text-slate-700' },
+            { icon: Edit2, label: 'Editar', onClick: () => onEdit(msg), color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
+            { icon: Trash2, label: 'Apagar', onClick: () => onDelete(msg.id), color: 'text-red-500' },
+          ].filter(item => !item.hide).map((item, i) => (
+            <button
+              key={i}
+              onClick={(e) => {
+                e.stopPropagation();
+                item.onClick();
+                handleClose();
+              }}
+              className={`flex items-center gap-3 px-3 py-2 text-sm font-medium hover:bg-slate-50 transition-colors rounded ${item.color}`}
+            >
+              <item.icon size={16} />
+              {item.label}
+            </button>
+          ))}
+        </div>,
+        portalRoot
+      )}
     </div>
   );
 }

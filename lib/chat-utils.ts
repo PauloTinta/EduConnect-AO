@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { Message } from './chat-types';
 
 /**
  * Carrega a conversa e seus participantes.
@@ -73,20 +74,40 @@ export async function markMessagesAsSeen(conversationId: string, currentUserId: 
  * Apaga uma mensagem (Soft Delete).
  */
 export async function deleteMessage(messageId: string, forEveryone = true) {
-  if (forEveryone) {
-    const { error } = await supabase
-      .from('messages')
-      .update({ 
-        deleted_at: new Date().toISOString(),
-        content: 'Esta mensagem foi apagada',
-        media_url: null,
-        media_type: 'text'
-      })
-      .eq('id', messageId);
-    if (error) throw error;
-  } else {
-    // Apagar só para mim normalmente exigiria uma tabela de exclusão por usuário.
-    // Para simplificar neste MVP, fazemos apenas para todos se for o sender.
+  try {
+    if (forEveryone) {
+      const { error, data } = await supabase
+        .from('messages')
+        .update({ 
+          deleted_at: new Date().toISOString(),
+          content: 'Esta mensagem foi apagada',
+          media_url: null,
+          media_type: 'text'
+        })
+        .eq('id', messageId)
+        .select();
+
+      if (error) {
+        console.error('❌ [deleteMessage] Supabase Error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          messageId
+        });
+        throw error;
+      }
+
+      console.log('✅ [deleteMessage] Success:', data);
+      return data;
+    } else {
+      // Apagar só para mim normalmente exigiria uma tabela de exclusão por usuário.
+      // Para simplificar neste MVP, fazemos apenas para todos se for o sender.
+      console.warn('⚠️ [deleteMessage] ForEveryone=false not implemented');
+    }
+  } catch (err) {
+    console.error('❌ [deleteMessage] Unexpected Error:', err);
+    throw err;
   }
 }
 
@@ -94,14 +115,34 @@ export async function deleteMessage(messageId: string, forEveryone = true) {
  * Edita o conteúdo de uma mensagem.
  */
 export async function editMessage(messageId: string, newContent: string) {
-  const { error } = await supabase
-    .from('messages')
-    .update({ 
-      content: newContent,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', messageId);
-  if (error) throw error;
+  try {
+    const { error, data } = await supabase
+      .from('messages')
+      .update({ 
+        content: newContent,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', messageId)
+      .select();
+
+    if (error) {
+      console.error('❌ [editMessage] Supabase Error:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        messageId,
+        newContent
+      });
+      throw error;
+    }
+
+    console.log('✅ [editMessage] Success:', data);
+    return data;
+  } catch (err) {
+    console.error('❌ [editMessage] Unexpected Error:', err);
+    throw err;
+  }
 }
 
 /**

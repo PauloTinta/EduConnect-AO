@@ -13,22 +13,7 @@ import { ChatInput } from '@/components/chat/chat-input';
 import { PollMessage } from '@/components/chat/poll-message';
 import { MessageBubble } from '@/components/chat/message-bubble';
 import { uploadChatMedia, markMessagesAsSeen, getConversationDetails, deleteMessage, editMessage } from '@/lib/chat-utils';
-
-interface Message {
-  id: string;
-  conversation_id: string;
-  sender_id: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'voice' | 'poll';
-  content?: string;
-  media_url?: string;
-  poll_data?: { question: string; options: string[] };
-  created_at: string;
-  seen_at?: string;
-  reply_to?: string;
-  deleted_at?: string;
-  updated_at?: string;
-  reactions?: { emoji: string; count: number; users: string[] }[];
-}
+import { Message } from '@/lib/chat-types';
 
 interface Participant {
   user_id: string;
@@ -65,6 +50,8 @@ export default function ChatRoom() {
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [resetPositionCounter, setResetPositionCounter] = useState(0);
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
@@ -383,6 +370,9 @@ export default function ChatRoom() {
                 onEdit={setEditingMessage}
                 onDelete={handleDeleteMessage}
                 onReact={handleReact}
+                resetPosition={resetPositionCounter}
+                activeMessageId={activeMessageId}
+                setActiveMessageId={setActiveMessageId}
               />
             </div>
           );
@@ -421,7 +411,7 @@ export default function ChatRoom() {
           onSendPoll={sendPollMessage}
           onSendVoice={sendVoiceMessage}
           replyTo={replyTo}
-          onCancelReply={() => setReplyTo(null)}
+          onCancelReply={() => { setReplyTo(null); setResetPositionCounter(c => c + 1); }}
           editingMessage={editingMessage}
           onCancelEdit={() => setEditingMessage(null)}
           onTyping={handleTyping}
