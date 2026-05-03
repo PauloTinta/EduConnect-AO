@@ -144,35 +144,45 @@ export default function ChatRoom() {
         });
 
         // New messages
-        channel.on('postgres_changes', {
-          event: 'INSERT', schema: 'public', table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        }, (payload: any) => {
-          console.log('📩 Nova mensagem realtime:', payload);
-          if (!isMounted) return;
-          const newMsg = payload.new as Message;
-          if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
+channel.on('postgres_changes', {
+  event: 'INSERT',
+  schema: 'public',
+  table: 'messages',
+  filter: `conversation_id=eq.${conversationId}`
+}, (payload: any) => {
+  if (!isMounted) return;
 
-          setMessages(prev => {
-  const exists = prev.some(m => m.id === newMsg.id);
-  if (exists) return prev;
+  const newMsg = payload.new as Message;
 
-  // remove mensagens temporárias duplicadas
-  const filtered = prev.filter(m => {
-    if (!m.id.startsWith('temp-')) return true;
+  // segurança extra
+  if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
 
-    // compara conteúdo para substituir corretamente
-    return !(
-      m.content === newMsg.content &&
-      m.sender_id === newMsg.sender_id
-    );
+  console.log('📩 Nova mensagem realtime:', newMsg);
+
+  setMessages(prev => {
+    // evita duplicação direta
+    const exists = prev.some(m => m.id === newMsg.id);
+    if (exists) return prev;
+
+    // remove mensagens temporárias equivalentes
+    const filtered = prev.filter(m => {
+      if (!m.id.startsWith('temp-')) return true;
+
+      return !(
+        m.content === newMsg.content &&
+        m.sender_id === newMsg.sender_id
+      );
+    });
+
+    return [...filtered, { ...newMsg, reactions: [] }];
   });
 
-  return [...filtered, { ...newMsg, reactions: [] }];
+  // marcar como visto (se não for você)
+  if (newMsg.sender_id !== user!.id) {
+    markMessagesAsSeen(conversationId, user!.id);
+  }
 });
 
-          if (newMsg.sender_id !== user!.id) markMessagesAsSeen(conversationId, user!.id);
-        });
 
         // Updates (edit, delete, seen)
         channel.on('postgres_changes', {
