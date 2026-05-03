@@ -55,6 +55,7 @@ export default function ChatRoom() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
+  const messageIdsRef = useRef<string[]>([]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -111,6 +112,7 @@ export default function ChatRoom() {
           event: 'INSERT', schema: 'public', table: 'messages',
           filter: `conversation_id=eq.${conversationId}`
         }, (payload: any) => {
+          console.log('📩 Nova mensagem realtime:', payload);
           if (!isMounted) return;
           const newMsg = payload.new as Message;
           setMessages(prev => {
@@ -129,14 +131,6 @@ export default function ChatRoom() {
           if (newMsg.sender_id !== user!.id) markMessagesAsSeen(conversationId, user!.id);
         });
 
-        channel.on('broadcast', { event: 'new-message' }, ({ payload }: any) => {
-          if (!isMounted || payload.sender_id === user!.id) return;
-          setMessages(prev => {
-            if (prev.some(m => m.id === payload.id || isDuplicateMessage(m, payload))) return prev;
-            return [...prev, { ...payload, reactions: [] }];
-          });
-        });
-
         // Updates (edit, delete, seen)
         channel.on('postgres_changes', {
           event: 'UPDATE', schema: 'public', table: 'messages',
@@ -150,17 +144,19 @@ export default function ChatRoom() {
         // Reactions
         channel.on('postgres_changes', {
           event: '*', schema: 'public', table: 'message_reactions'
-        }, async () => {
+        }, async (payload: any) => {
           if (!isMounted) return;
+          const messageId = payload.new?.message_id || payload.old?.message_id;
+          if (!messageId || !messageIdsRef.current.includes(messageId)) return;
+
           const { data } = await supabase
-            .from('messages')
-            .select('id, message_reactions(emoji, user_id)')
-            .eq('conversation_id', conversationId);
+            .from('message_reactions')
+            .select('message_id, emoji, user_id')
+            .eq('message_id', messageId);
+
           if (data && isMounted) {
-            setMessages(prev => prev.map(m => {
-              const updated = data.find(d => d.id === m.id);
-              return updated ? { ...m, reactions: processReactions(updated.message_reactions) } : m;
-            }));
+            const reactions = processReactions(data);
+            setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
           }
         });
 
@@ -173,7 +169,12 @@ export default function ChatRoom() {
           }
         });
 
-        await channel.subscribe();
+        channel.subscribe((status: string) => {
+          console.log('Realtime status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Conectado ao realtime');
+          }
+        });
         channelRef.current = channel;
       } catch (err) {
         console.error('Chat init error:', err);
@@ -193,8 +194,8 @@ export default function ChatRoom() {
     };
   }, [conversationId, user]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
+    messageIdsRef.current = messages.map(m => m.id);
     scrollToBottom();
   }, [messages, typingUser, scrollToBottom]);
 
@@ -254,12 +255,6 @@ export default function ChatRoom() {
     setMessages(prev => [...prev, tempMsg]);
     setReplyTo(null);
     scrollToBottom();
-
-    channelRef.current?.send({
-      type: 'broadcast',
-      event: 'new-message',
-      payload: tempMsg
-    });
 
     const { error } = await supabase.from('messages').insert({
       conversation_id: conversationId, sender_id: user.id,
