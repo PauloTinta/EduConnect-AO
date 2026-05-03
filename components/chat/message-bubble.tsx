@@ -383,7 +383,7 @@ export function MessageBubble({
   return (
     <div
       ref={wrapperRef}
-      className={`group relative ${isActive ? 'z-[60]' : 'z-10'} flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'}`}
+      className={`group relative ${isActive ? 'z-[1000]' : 'z-10'} flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'}`}
       onMouseDown={handlePressStart}
       onMouseUp={handlePressEnd}
       onTouchStart={handlePressStart}
@@ -499,7 +499,7 @@ export function MessageBubble({
       {/* Portal overlay */}
       {isActive && portalRoot && createPortal(
         <div
-          className="fixed inset-0 backdrop-blur-md bg-black/10 z-40 transition-opacity duration-200"
+          className="fixed inset-0 backdrop-blur-md bg-black/10 z-[999] transition-opacity duration-200"
           onClick={handleClose}
         />,
         portalRoot
@@ -514,7 +514,7 @@ export function MessageBubble({
             left: messageRect?.left || 0,
             width: messageRect?.width || 0
           }}
-          className="z-50"
+          className="z-[1000]"
           onClick={(e) => e.stopPropagation()}
         >
           <MessageVisual
@@ -538,7 +538,7 @@ export function MessageBubble({
             left: Math.max(20, Math.min((messageRect?.left || 0) + (messageRect?.width || 0) / 2, window.innerWidth - 140)),
             transform: "translateX(-50%)"
           }}
-          className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2 z-50"
+          className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2 z-[1000]"
         >
           {["👍","❤️","😂","🔥"].map(emoji => (
             <button key={emoji} onClick={(e) => { e.stopPropagation(); onReact(msg.id, emoji); handleClose(); }}>
@@ -558,7 +558,7 @@ export function MessageBubble({
             left: Math.max(20, Math.min((messageRect?.left || 0) + (messageRect?.width || 0) / 2, window.innerWidth - 140)),
             transform: "translateX(-50%)"
           }}
-          className="bg-white rounded-lg shadow-xl p-2 flex flex-col z-50 min-w-[140px]"
+          className="bg-white rounded-lg shadow-xl p-2 flex flex-col z-[1000] min-w-[140px]"
         >
           {[
             { icon: Reply, label: 'Responder', onClick: () => onReply(msg), color: 'text-slate-700' },

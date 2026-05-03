@@ -63,7 +63,11 @@ export default function ChatRoom() {
     bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' });
   }, []);
 
-  const isDuplicateMessage = (existing: Message, candidate: Partial<Message>) => {
+  const handleSetActiveMessage = useCallback((id: string | null) => {
+    setActiveMessageId(id);
+  }, []);
+
+  const isDuplicateMessage = useCallback((existing: Message, candidate: Partial<Message>) => {
     if (!existing.conversation_id || !candidate.conversation_id) return false;
     if (existing.conversation_id !== candidate.conversation_id) return false;
     if (existing.sender_id !== candidate.sender_id) return false;
@@ -72,7 +76,38 @@ export default function ChatRoom() {
     const existingTime = new Date(existing.created_at).getTime();
     const candidateTime = new Date(candidate.created_at || 0).getTime();
     return Math.abs(existingTime - candidateTime) < 3000;
-  };
+  }, []);
+
+  const refreshMessageReactions = useCallback(async (messageId: string) => {
+    const { data } = await supabase
+      .from('message_reactions')
+      .select('message_id, emoji, user_id')
+      .eq('message_id', messageId);
+
+    if (!data) return;
+
+    const reactions = processReactions(data);
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+  }, []);
+
+  const upsertMessage = useCallback((newMsg: Message) => {
+    setMessages(prev => {
+      const existingIndex = prev.findIndex(m => m.id === newMsg.id);
+      if (existingIndex !== -1) {
+        return prev.map(m => m.id === newMsg.id ? { ...m, ...newMsg, reactions: m.reactions || [] } : m);
+      }
+
+      const replaced = prev.map(m => {
+        if (m.id.startsWith('temp-') && isDuplicateMessage(m, newMsg)) {
+          return { ...newMsg, reactions: [] };
+        }
+        return m;
+      });
+
+      if (replaced.some(m => m.id === newMsg.id)) return replaced;
+      return [...replaced, { ...newMsg, reactions: [] }];
+    });
+  }, [isDuplicateMessage]);
 
   useEffect(() => {
     if (!conversationId || !user) return;
@@ -115,19 +150,7 @@ export default function ChatRoom() {
           console.log('📩 Nova mensagem realtime:', payload);
           if (!isMounted) return;
           const newMsg = payload.new as Message;
-          setMessages(prev => {
-            if (prev.some(m => m.id === newMsg.id)) return prev;
-
-            const replaced = prev.map(m => {
-              if (m.id.startsWith('temp-') && isDuplicateMessage(m, newMsg)) {
-                return { ...newMsg, reactions: [] };
-              }
-              return m;
-            });
-
-            if (replaced.some(m => m.id === newMsg.id)) return replaced;
-            return [...replaced, { ...newMsg, reactions: [] }];
-          });
+          upsertMessage(newMsg);
           if (newMsg.sender_id !== user!.id) markMessagesAsSeen(conversationId, user!.id);
         });
 
@@ -138,7 +161,7 @@ export default function ChatRoom() {
         }, (payload: any) => {
           if (!isMounted) return;
           const updated = payload.new as Message;
-          setMessages(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
+          upsertMessage(updated);
         });
 
         // Reactions
@@ -148,16 +171,7 @@ export default function ChatRoom() {
           if (!isMounted) return;
           const messageId = payload.new?.message_id || payload.old?.message_id;
           if (!messageId || !messageIdsRef.current.includes(messageId)) return;
-
-          const { data } = await supabase
-            .from('message_reactions')
-            .select('message_id, emoji, user_id')
-            .eq('message_id', messageId);
-
-          if (data && isMounted) {
-            const reactions = processReactions(data);
-            setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-          }
+          await refreshMessageReactions(messageId);
         });
 
         // Typing
@@ -354,7 +368,7 @@ export default function ChatRoom() {
       {/* MESSAGES — scrollable area, no extra wrappers that break layout */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto overscroll-y-contain px-2 sm:px-3 py-2 space-y-0"
+        className="flex-1 overflow-y-auto relative z-0 overscroll-y-contain px-2 sm:px-3 py-2 space-y-0"
         style={{
           backgroundImage: `
             linear-gradient(rgba(232,237,242,0.85), rgba(232,237,242,0.85)),
@@ -398,7 +412,7 @@ export default function ChatRoom() {
                 onReact={handleReact}
                 resetPosition={resetPositionCounter}
                 activeMessageId={activeMessageId}
-                setActiveMessageId={setActiveMessageId}
+                setActiveMessageId={handleSetActiveMessage}
               />
             </div>
           );
