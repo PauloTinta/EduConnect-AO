@@ -108,7 +108,7 @@ export default function ChatRoom() {
   }, []);
 
   useEffect(() => {
-    if (!conversationId || !user) return;
+    if (!conversationId || !user?.id) return;
     let isMounted = true;
 
     async function init() {
@@ -144,7 +144,7 @@ export default function ChatRoom() {
         });
 
         // New messages
-channel.on('postgres_changes', {
+  channel.on('postgres_changes', {
   event: 'INSERT',
   schema: 'public',
   table: 'messages',
@@ -154,36 +154,39 @@ channel.on('postgres_changes', {
 
   const newMsg = payload.new as Message;
 
-  // segurança extra
   if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
 
   console.log('📩 Nova mensagem realtime:', newMsg);
 
   setMessages(prev => {
-    // evita duplicação direta
-    const exists = prev.some(m => m.id === newMsg.id);
-    if (exists) return prev;
+  // remove temp equivalente
+  const filtered = prev.filter(m => {
+    if (!m.id.startsWith('temp-')) return true;
 
-    // remove mensagens temporárias equivalentes
-    const filtered = prev.filter(m => {
-      if (!m.id.startsWith('temp-')) return true;
-
-      return !(
-        m.content === newMsg.content &&
-        m.sender_id === newMsg.sender_id
-      );
-    });
-
-    return [...filtered, { ...newMsg, reactions: [] }];
+    return !(
+      m.sender_id === newMsg.sender_id &&
+      Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 5000
+    );
   });
 
-  // marcar como visto (se não for você)
+  // usa upsert aqui
+  const exists = filtered.find(m => m.id === newMsg.id);
+
+  if (exists) {
+    return filtered.map(m =>
+      m.id === newMsg.id
+        ? { ...m, ...newMsg, reactions: m.reactions || [] }
+        : m
+    );
+  }
+
+    return [...filtered, { ...newMsg, reactions: newMsg.reactions ?? [] }];
+  });
+
   if (newMsg.sender_id !== user!.id) {
     markMessagesAsSeen(conversationId, user!.id);
   }
 });
-
-
         // Updates (edit, delete, seen)
         channel.on('postgres_changes', {
           event: 'UPDATE', schema: 'public', table: 'messages',
@@ -191,18 +194,11 @@ channel.on('postgres_changes', {
         }, (payload: any) => {
           if (!isMounted) return;
           const updated = payload.new as Message;
-          setMessages(prev =>
-            prev.map(m => {
-              if (m.id !== updated.id) return m;
+          upsertMessage({
+            ...updated,
+            reactions: prev => prev // mantém as existentes
+});
 
-              return {
-                ...m,
-                ...updated,
-                reactions: m.reactions ?? []
-              } as Message;
-            })
-          );
-        });
 
         // Reactions
         channel.on('postgres_changes', {
@@ -227,10 +223,20 @@ channel.on('postgres_changes', {
 
         channel.subscribe((status: string) => {
           console.log('Realtime status:', status);
-          if (status === 'SUBSCRIBED') {
-            console.log('✅ Conectado ao realtime');
+
+           if (status === 'SUBSCRIBED') {
+          console.log('✅ Conectado ao realtime');
           }
-        });
+
+  if (status === 'CHANNEL_ERROR') {
+    console.error('❌ Erro no realtime');
+  }
+
+  if (status === 'TIMED_OUT') {
+    console.error('⏱️ Timeout realtime');
+  }
+});
+
         channelRef.current = channel;
       } catch (err) {
         console.error('Chat init error:', err);
@@ -329,10 +335,12 @@ channel.on('postgres_changes', {
     scrollToBottom();
 
     const { error } = await supabase.from('messages').insert({
-      conversation_id: conversationId, sender_id: user.id,
-      type: 'text', content, reply_to: replyTo?.id
+      conversation_id: conversationId,
+      sender_id: user.id,
+      type: 'text',
+      content,
+      reply_to: replyTo?.id
     });
-
     if (error) {
       console.error(error);
       setMessages(prev => prev.filter(m => m.id !== tempId));
