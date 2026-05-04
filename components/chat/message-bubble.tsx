@@ -30,14 +30,10 @@ interface MessageBubbleProps {
   setActiveMessageId: (id: string | null) => void;
 }
 
-/* ───── Helper visual para o portal (sem efeitos exagerados) ───── */
+/* ───── Helper visual para o portal ───── */
 function MessageVisual({
-  msg,
-  isMe,
-  isFirstInGroup,
-  isLastInGroup,
-  otherParticipantName,
-  currentUserId,
+  msg, isMe, isFirstInGroup, isLastInGroup,
+  otherParticipantName, currentUserId,
 }: {
   msg: Message;
   isMe: boolean;
@@ -53,7 +49,6 @@ function MessageVisual({
   const bubbleOther = `bg-gradient-to-br from-white to-slate-50 text-slate-800 shadow-sm hover:shadow-md
     ${isFirstInGroup ? 'rounded-[20px] rounded-tl-[5px]' : 'rounded-[20px]'}
     ${!isLastInGroup ? 'rounded-bl-[8px]' : ''}`;
-
   const hasReactions = msg.reactions && msg.reactions.length > 0;
 
   return (
@@ -77,20 +72,8 @@ function MessageVisual({
         ) : (
           <>
             {msg.type === 'text' && (
-              <p className="leading-relaxed text-[15px] font-medium break-words overflow-hidden">
+              <p className="leading-relaxed text-[15px] font-medium break-words">
                 {msg.content}
-                {/* ⏱️ Hora flutuante no fim do texto */}
-                <span className={`float-right ml-2 text-[9px] font-bold leading-relaxed ${
-                  isMe ? 'text-blue-200/80' : 'text-slate-400/80'
-                }`}>
-                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  {isMe && !msg.deleted_at && (
-                    <span className="ml-0.5 inline-block align-middle">
-                      {msg.seen_at ? <CheckCheck size={12} /> : <Check size={12} className="opacity-50" />}
-                    </span>
-                  )}
-                </span>
-                <span className="clear-both block h-0"></span>
               </p>
             )}
             {msg.type === 'image' && (
@@ -119,31 +102,29 @@ function MessageVisual({
             {msg.type === 'poll' && msg.poll_data && (
               <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
             )}
-          </>
-        )}
 
-        {/* A hora nos outros tipos de mensagem continua em baixo */}
-        {msg.type !== 'text' && (
-          <div className={`flex items-center justify-end gap-1 mt-1 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
-            {msg.updated_at && !msg.deleted_at && (
-              <span className="text-[9px] italic opacity-75 mr-1">editada</span>
-            )}
-            <span className="text-[9px] font-bold">
-              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            {isMe && !msg.deleted_at && (
-              <span className="ml-0.5">
-                {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
+            {/* ⏱️ Hora sempre no canto inferior direito */}
+            <div className={`flex items-center justify-end gap-1 mt-1.5 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
+              {msg.updated_at && !msg.deleted_at && (
+                <span className="text-[9px] italic opacity-75 mr-1">editada</span>
+              )}
+              <span className="text-[9px] font-bold">
+                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
-            )}
-          </div>
+              {isMe && !msg.deleted_at && (
+                <span className="ml-0.5">
+                  {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
+                </span>
+              )}
+            </div>
+          </>
         )}
 
         {/* Reactions */}
         {hasReactions && (
           <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
             {msg.reactions!.map((r, i) => (
-              <button key={i} disabled // clone não deve interagir
+              <button key={i} disabled
                 className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[13px] border bg-white shadow-sm transition-all active:scale-90 ${
                   r.users.includes(currentUserId) ? 'border-blue-300 bg-blue-50' : 'border-slate-100'
                 }`}>
@@ -235,7 +216,6 @@ export function MessageBubble({
   const messageRef = useRef<HTMLDivElement>(null);
   const [messageRect, setMessageRect] = useState<any>(null);
   const portalRoot = typeof document !== 'undefined' ? document.getElementById('portal-root') : null;
-
   const isActive = activeMessageId === msg.id;
 
   const handleActivate = () => {
@@ -271,11 +251,8 @@ export function MessageBubble({
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isActive) {
-      handleClose();
-    } else {
-      handleActivate();
-    }
+    if (isActive) handleClose();
+    else handleActivate();
   };
 
   const handleDragEnd = (_: any, info: any) => {
@@ -346,20 +323,8 @@ export function MessageBubble({
           ) : (
             <>
               {msg.type === 'text' && (
-                <p className="leading-relaxed text-[15px] font-medium break-words overflow-hidden">
+                <p className="leading-relaxed text-[15px] font-medium break-words">
                   {msg.content}
-                  {/* ⏱️ Hora flutuante no fim do texto */}
-                  <span className={`float-right ml-2 text-[9px] font-bold leading-relaxed ${
-                    isMe ? 'text-blue-200/80' : 'text-slate-400/80'
-                  }`}>
-                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {isMe && !msg.deleted_at && (
-                      <span className="ml-0.5 inline-block align-middle">
-                        {msg.seen_at ? <CheckCheck size={12} /> : <Check size={12} className="opacity-50" />}
-                      </span>
-                    )}
-                  </span>
-                  <span className="clear-both block h-0"></span>
                 </p>
               )}
               {msg.type === 'image' && (
@@ -388,24 +353,22 @@ export function MessageBubble({
               {msg.type === 'poll' && msg.poll_data && (
                 <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
               )}
-            </>
-          )}
 
-          {/* Hora para mensagens que não são texto */}
-          {msg.type !== 'text' && (
-            <div className={`flex items-center justify-end gap-1 mt-1 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
-              {msg.updated_at && !msg.deleted_at && (
-                <span className="text-[9px] italic opacity-75 mr-1">editada</span>
-              )}
-              <span className="text-[9px] font-bold">
-                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-              {isMe && !msg.deleted_at && (
-                <span className="ml-0.5">
-                  {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
+              {/* ⏱️ Hora sempre no canto inferior direito */}
+              <div className={`flex items-center justify-end gap-1 mt-1.5 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
+                {msg.updated_at && !msg.deleted_at && (
+                  <span className="text-[9px] italic opacity-75 mr-1">editada</span>
+                )}
+                <span className="text-[9px] font-bold">
+                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
-              )}
-            </div>
+                {isMe && !msg.deleted_at && (
+                  <span className="ml-0.5">
+                    {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
+                  </span>
+                )}
+              </div>
+            </>
           )}
 
           {/* Reactions */}
@@ -425,7 +388,7 @@ export function MessageBubble({
         </div>
       </motion.div>
 
-      {/* Portais (menu, reações, clone) — mantidos na íntegra */}
+      {/* Portais (menu, reações, clone) */}
       {isActive && portalRoot && createPortal(
         <div className="fixed inset-0 backdrop-blur-md bg-black/10 z-[999] transition-opacity duration-200" onClick={handleClose} />,
         portalRoot
