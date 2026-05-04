@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform, useAnimation } from 'motion/react';
+import { motion, useMotionValue, useTransform, useAnimation } from 'motion/react';
 import {
   Check, CheckCheck, Trash2, Edit2, Reply,
   Paperclip, Play, Pause, Mic
 } from 'lucide-react';
 import Image from 'next/image';
-import { createPortal } from 'react-dom';
 import { PollMessage } from './poll-message';
 import { Message } from '@/lib/chat-types';
 
@@ -29,10 +28,11 @@ interface MessageBubbleProps {
   resetPosition?: number;
   activeMessageId: string | null;
   setActiveMessageId: (id: string | null) => void;
-  isPreview?: boolean; // desliga interações no modo preview
+  isPreview?: boolean;      // desliga interações no modo preview
+  onOpenActions?: (msg: Message) => void; // callback para abrir overlay global
 }
 
-/* ─── Componente auxiliar: Player de voz ─── */
+/* ─── Player de voz ─── */
 function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -100,6 +100,7 @@ export function MessageBubble({
   otherParticipantName, currentUserId, resetPosition,
   activeMessageId, setActiveMessageId,
   isPreview = false,
+  onOpenActions,
 }: MessageBubbleProps) {
   const messageRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -111,13 +112,11 @@ export function MessageBubble({
   const replyScale = useTransform(x, isMe ? [-60, 0] : [0, 60], [1.2, 0.8]);
   const [isSwiping, setIsSwiping] = useState(false);
 
-  // ─── Estado local do modal de preview (mobile) ───
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // ─── Barra flutuante (desktop) ───
   const [messageRect, setMessageRect] = useState<DOMRect | null>(null);
-
   const portalRoot = typeof document !== 'undefined' ? document.getElementById('portal-root') : null;
 
-  // ─── Detecta dispositivo touch ───
+  // Detecta dispositivo touch
   const isTouchDevice = useRef(false);
   useEffect(() => {
     const handler = () => { isTouchDevice.current = true; };
@@ -125,7 +124,6 @@ export function MessageBubble({
     return () => window.removeEventListener('touchstart', handler);
   }, []);
 
-  // ─── Se é a mensagem activa (barra flutuante desktop) ───
   const isActiveBar = activeMessageId === msg.id && !isPreview;
 
   // ─── Reset de swipe ───
@@ -161,34 +159,19 @@ export function MessageBubble({
     setActiveMessageId(null);
   }, [setActiveMessageId]);
 
-  // Duplo toque mobile (open preview)
+  // Duplo toque mobile (abre overlay global)
   const lastTap = useRef(0);
   const handleDoubleTap = useCallback(() => {
-    if (!isTouchDevice.current) return;
+    if (!isTouchDevice.current || isPreview) return;
     const now = Date.now();
     if (now - lastTap.current < 300) {
-      // Double tap detectado
-      setPreviewOpen(true);
+      // Double tap detectado → abre overlay global
+      onOpenActions?.(msg);
       lastTap.current = 0;
     } else {
       lastTap.current = now;
     }
-  }, []);
-
-  // Fechar preview
-  const closePreview = useCallback(() => setPreviewOpen(false), []);
-
-  // ESC fecha tudo
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (previewOpen) setPreviewOpen(false);
-        if (activeMessageId === msg.id) setActiveMessageId(null);
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [previewOpen, activeMessageId, msg.id, setActiveMessageId]);
+  }, [msg, onOpenActions, isPreview]);
 
   // Right-click desktop → abre barra flutuante
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -200,7 +183,7 @@ export function MessageBubble({
     }
   }, [isPreview, openFloatingBar]);
 
-  // Click normal (desktop) – também abre barra flutuante, replicando o comportamento do right-click para simplificar
+  // Click normal desktop → abre barra flutuante
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (isPreview || isTouchDevice.current) return;
     e.stopPropagation();
@@ -210,6 +193,17 @@ export function MessageBubble({
       openFloatingBar();
     }
   }, [isPreview, isActiveBar, closeFloatingBar, openFloatingBar]);
+
+  // ESC fecha tudo
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activeMessageId === msg.id) setActiveMessageId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [activeMessageId, msg.id, setActiveMessageId]);
 
   // ════ Classes do balão ════
   const bubbleBase = `relative select-none break-words ${
@@ -237,109 +231,42 @@ export function MessageBubble({
     </span>
   );
 
-  // ════ Preview Modal (mobile) ════
-  const renderPreviewModal = () => {
-    if (!previewOpen || !portalRoot) return null;
-    return createPortal(
-      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center">
-        {/* Overlay */}
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closePreview} />
-
-        {/* Conteúdo centralizado */}
-        <div className="flex flex-col items-center gap-3 z-10">
-          {/* Reações */}
-          <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
-            {QUICK_REACTIONS.map(emoji => (
-              <button key={emoji} onClick={() => { onReact(msg.id, emoji); closePreview(); }}
-                className="text-lg transition-transform active:scale-125">
-                {emoji}
-              </button>
-            ))}
-          </div>
-
-          {/* Bolha clonada (sem interação, igual à original) */}
-          <div className="scale-105">
-            <MessageBubble
-              msg={msg}
-              isMe={isMe}
-              isFirstInGroup={true}
-              isLastInGroup={true}
-              currentUserId={currentUserId}
-              otherParticipantName={otherParticipantName}
-              onReply={() => { onReply(msg); closePreview(); }}
-              onEdit={() => { onEdit(msg); closePreview(); }}
-              onDelete={() => { onDelete(msg.id); closePreview(); }}
-              onReact={onReact}
-              resetPosition={0}
-              activeMessageId={null}
-              setActiveMessageId={() => {}}
-              isPreview={true}
-            />
-          </div>
-
-          {/* Menu de ações */}
-          <div className="bg-white rounded-xl shadow-lg flex gap-1 px-3 py-2">
-            {[
-              { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closePreview(); }, color: 'text-slate-700' },
-              { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closePreview(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
-              { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closePreview(); }, color: 'text-red-500' },
-            ].filter(item => !item.hide).map((item, i) => (
-              <button key={i} onClick={item.onClick}
-                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 transition-colors rounded ${item.color}`}>
-                <item.icon size={16} />
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>,
-      portalRoot
-    );
-  };
-
   // ════ Barra flutuante (desktop) ════
   const renderFloatingBar = () => {
     if (!isActiveBar || !messageRect || !portalRoot) return null;
     const top = Math.max(10, messageRect.top - 70);
     const left = Math.min(Math.max(20, messageRect.left + messageRect.width / 2), window.innerWidth - 140);
 
-    return createPortal(
-      <>
-        <div className="fixed inset-0 bg-black/10 backdrop-blur-sm z-[999] transition-opacity" onClick={closeFloatingBar} />
-        <div style={{ position: 'fixed', top, left, transform: 'translateX(-50%)' }} className="z-[1000] flex flex-col gap-2">
-          <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
-            {QUICK_REACTIONS.map(emoji => (
-              <button key={emoji} onClick={() => { onReact(msg.id, emoji); closeFloatingBar(); }}
-                className="text-lg active:scale-125 transition-transform">
-                {emoji}
-              </button>
-            ))}
-          </div>
-          <div className="bg-white rounded-xl shadow-lg flex gap-1 px-3 py-2">
-            {[
-              { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closeFloatingBar(); }, color: 'text-slate-700' },
-              { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closeFloatingBar(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
-              { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closeFloatingBar(); }, color: 'text-red-500' },
-            ].filter(item => !item.hide).map((item, i) => (
-              <button key={i} onClick={item.onClick}
-                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 rounded ${item.color}`}>
-                <item.icon size={16} />
-                {item.label}
-              </button>
-            ))}
-          </div>
+    return (
+      <div style={{ position: 'fixed', top, left, transform: 'translateX(-50%)', zIndex: 1000 }} className="flex flex-col gap-2">
+        <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
+          {QUICK_REACTIONS.map(emoji => (
+            <button key={emoji} onClick={() => { onReact(msg.id, emoji); closeFloatingBar(); }}
+              className="text-lg active:scale-125 transition-transform">
+              {emoji}
+            </button>
+          ))}
         </div>
-      </>,
-      portalRoot
+        <div className="bg-white rounded-xl shadow-lg flex gap-1 px-3 py-2">
+          {[
+            { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closeFloatingBar(); }, color: 'text-slate-700' },
+            { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closeFloatingBar(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
+            { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closeFloatingBar(); }, color: 'text-red-500' },
+          ].filter(item => !item.hide).map((item, i) => (
+            <button key={i} onClick={item.onClick}
+              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 rounded ${item.color}`}>
+              <item.icon size={16} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
     );
   };
 
-  // ════ Renderização principal ════
+  // ════ RENDER ════
   return (
     <>
-      {renderPreviewModal()}
-      {renderFloatingBar()}
-
       {/* ════ Wrapper (pointer-events-none para evitar zona fantasma) ════ */}
       <div
         ref={wrapperRef}
@@ -357,7 +284,7 @@ export function MessageBubble({
           </motion.div>
         )}
 
-        {/* ════ Bolha (pointer-events-auto, apenas aqui os eventos são capturados) ════ */}
+        {/* ════ Bolha (pointer-events-auto aqui! Sem margens/paddings extras) ════ */}
         <motion.div
           ref={messageRef}
           drag={!msg.deleted_at && !isPreview ? 'x' : false}
@@ -471,6 +398,9 @@ export function MessageBubble({
           </div>
         </motion.div>
       </div>
+
+      {/* Barra flutuante renderizada via portal */}
+      {renderFloatingBar()}
     </>
   );
 }
