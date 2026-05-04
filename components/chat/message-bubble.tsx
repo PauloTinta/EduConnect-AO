@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { PollMessage } from './poll-message';
 import { Message } from '@/lib/chat-types';
 
-const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥'];
 
 interface MessageBubbleProps {
   msg: Message;
@@ -28,9 +28,12 @@ interface MessageBubbleProps {
   resetPosition?: number;
   activeMessageId: string | null;
   setActiveMessageId: (id: string | null) => void;
+  isPreview?: boolean; // <-- novo: usado no modal
 }
 
-/* ───── Player de voz (inalterado) ───── */
+/* ══════════════════════════════════════════════════════════════
+   Player de voz (inalterado)
+   ══════════════════════════════════════════════════════════════ */
 function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -89,29 +92,33 @@ function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    COMPONENTE PRINCIPAL
-   ══════════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════ */
 export function MessageBubble({
   msg, isMe, isFirstInGroup, isLastInGroup,
   onReply, onEdit, onDelete, onReact,
   otherParticipantName, currentUserId, resetPosition,
-  activeMessageId, setActiveMessageId
+  activeMessageId, setActiveMessageId,
+  isPreview = false,
 }: MessageBubbleProps) {
+  // ─── Estados locais ───
   const [isSwiping, setIsSwiping] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const messageRef = useRef<HTMLDivElement>(null);
+  const [messageRect, setMessageRect] = useState<DOMRect | null>(null);
+
+  const [previewMessage, setPreviewMessage] = useState<Message | null>(null); // para modal mobile
+
+  // ─── Drag para responder ───
   const x = useMotionValue(0);
   const controls = useAnimation();
   const replyOpacity = useTransform(x, isMe ? [-60, 0] : [0, 60], [1, 0]);
   const replyScale = useTransform(x, isMe ? [-60, 0] : [0, 60], [1.2, 0.8]);
 
-  const messageRef = useRef<HTMLDivElement>(null);
-  const [messageRect, setMessageRect] = useState<DOMRect | null>(null);
   const portalRoot = typeof document !== 'undefined' ? document.getElementById('portal-root') : null;
-  const isActive = activeMessageId === msg.id;
 
-  // Detecta dispositivo touch
+  // ─── Detecta touch ───
   const isTouchDevice = useRef(false);
   useEffect(() => {
     const handler = () => { isTouchDevice.current = true; };
@@ -119,67 +126,16 @@ export function MessageBubble({
     return () => window.removeEventListener('touchstart', handler);
   }, []);
 
-  const handleActivate = useCallback(() => {
-    const rect = messageRef.current?.getBoundingClientRect();
-    if (rect) {
-      setMessageRect(rect);
-      setActiveMessageId(msg.id);
-    }
-  }, [msg.id, setActiveMessageId]);
+  const isActive = activeMessageId === msg.id;
 
-  const handleClose = useCallback(() => {
-    setActiveMessageId(null);
-  }, [setActiveMessageId]);
-
-  // Reset posição de swipe
+  // ─── Reset de posição de swipe ───
   useEffect(() => {
     if (resetPosition !== undefined) {
       controls.start({ x: 0 });
     }
   }, [resetPosition, controls]);
 
-  // Pressão longa (para mobile)
-  const startPressTimer = useCallback(() => {
-    pressTimerRef.current = setTimeout(() => {
-      handleActivate();
-    }, 500);
-  }, [handleActivate]);
-
-  const clearPressTimer = useCallback(() => {
-    if (pressTimerRef.current) {
-      clearTimeout(pressTimerRef.current);
-      pressTimerRef.current = null;
-    }
-  }, []);
-
-  // Clique (desktop)
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isTouchDevice.current) return;
-    if (isActive) handleClose();
-    else handleActivate();
-  }, [isActive, handleActivate, handleClose]);
-
-  // Touch events (mobile)
-  const handleTouchStart = useCallback(() => {
-    startPressTimer();
-  }, [startPressTimer]);
-
-  const handleTouchEnd = useCallback(() => {
-    clearPressTimer();
-  }, [clearPressTimer]);
-
-  // Mouse events (desktop)
-  const handleMouseDown = useCallback(() => {
-    // Opcional: pressão longa no desktop também pode ativar
-    startPressTimer();
-  }, [startPressTimer]);
-
-  const handleMouseUp = useCallback(() => {
-    clearPressTimer();
-  }, [clearPressTimer]);
-
-  // Swipe para responder
+  // ─── Fim do swipe ───
   const handleDragEnd = useCallback((_: any, info: any) => {
     setIsSwiping(false);
     const threshold = 60;
@@ -189,144 +145,121 @@ export function MessageBubble({
     setActiveMessageId(null);
   }, [isMe, msg, onReply, controls, setActiveMessageId]);
 
-  const hasReactions = msg.reactions && msg.reactions.length > 0;
+  // ─── Ativar barra flutuante (desktop) ───
+  const handleToggleActive = useCallback(() => {
+    if (isTouchDevice.current) return; // mobile não usa barra
+    if (isActive) {
+      setActiveMessageId(null);
+    } else {
+      const rect = messageRef.current?.getBoundingClientRect();
+      if (rect) {
+        setMessageRect(rect);
+        setActiveMessageId(msg.id);
+      }
+    }
+  }, [isActive, msg.id, setActiveMessageId]);
 
-  const bubbleBase = `relative max-w-[75%] sm:max-w-[68%] select-none break-words`;
+  // ─── Duplo toque no mobile (abre preview centralizado) ───
+  const lastTap = useRef<number>(0);
+  const handleMobileTap = useCallback(() => {
+    if (!isTouchDevice.current) return;
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      // duplo toque → abre modal de preview
+      setPreviewMessage(msg);
+      lastTap.current = 0; // reset
+    } else {
+      lastTap.current = now;
+    }
+  }, [msg]);
+
+  // ─── Fechar preview e barra ───
+  const closePreview = useCallback(() => setPreviewMessage(null), []);
+  const closeFloatingBar = useCallback(() => setActiveMessageId(null), [setActiveMessageId]);
+
+  // ─── Classes do balão ───
+  const bubbleBase = `relative max-w-[75%] sm:max-w-[68%] select-none break-words ${isPreview ? 'pointer-events-none' : ''}`;
   const bubbleIsMe = `bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm hover:shadow-md
     ${isFirstInGroup ? 'rounded-[20px] rounded-tr-[5px]' : 'rounded-[20px]'}
-    ${!isLastInGroup ? 'rounded-br-[8px]' : ''}`;
+    ${!isLastInGroup && !isPreview ? 'rounded-br-[8px]' : ''}`;
   const bubbleOther = `bg-gradient-to-br from-white to-slate-50 text-slate-800 shadow-sm hover:shadow-md
     ${isFirstInGroup ? 'rounded-[20px] rounded-tl-[5px]' : 'rounded-[20px]'}
-    ${!isLastInGroup ? 'rounded-bl-[8px]' : ''}`;
+    ${!isLastInGroup && !isPreview ? 'rounded-bl-[8px]' : ''}`;
 
+  // ──────── RENDER PRINCIPAL ────────
   return (
-    <div
-      ref={wrapperRef}
-      className={`group relative ${isActive ? 'z-[1000]' : 'z-10'} flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'}`}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onClick={handleClick}
-    >
-      {/* Indicador de arrasto */}
-      {!msg.deleted_at && isSwiping && (
-        <motion.div
-          style={{ opacity: replyOpacity, scale: replyScale }}
-          className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none`}
-        >
-          <Reply size={22} className="stroke-[3]" />
-        </motion.div>
+    <>
+      {/* ── Overlay + Modal de preview (mobile) ── */}
+      {previewMessage && portalRoot && (
+        createPortal(
+          <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center" style={{ pointerEvents: 'none' }}>
+            {/* backdrop */}
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={closePreview}
+            />
+            {/* conteúdo */}
+            <div className="flex flex-col items-center gap-3 z-10" style={{ pointerEvents: 'auto' }}>
+              {/* Reações */}
+              <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
+                {QUICK_EMOJIS.map(emoji => (
+                  <button key={emoji} onClick={(e) => { e.stopPropagation(); onReact(msg.id, emoji); closePreview(); }}
+                    className="text-lg transition-transform active:scale-125">
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+
+              {/* Bolha clonada (sem interação) */}
+              <div className="scale-105 origin-center">
+                <MessageBubble
+                  msg={msg}
+                  isMe={isMe}
+                  isFirstInGroup={true}
+                  isLastInGroup={true}
+                  currentUserId={currentUserId}
+                  otherParticipantName={otherParticipantName}
+                  onReply={() => { onReply(msg); closePreview(); }}
+                  onEdit={() => { onEdit(msg); closePreview(); }}
+                  onDelete={() => { onDelete(msg.id); closePreview(); }}
+                  onReact={onReact}
+                  resetPosition={0}
+                  activeMessageId={null}
+                  setActiveMessageId={() => {}}
+                  isPreview={true}
+                />
+              </div>
+
+              {/* Menu */}
+              <div className="bg-white rounded-lg shadow-xl p-2 flex gap-1">
+                {[
+                  { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closePreview(); }, color: 'text-slate-700' },
+                  { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closePreview(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
+                  { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closePreview(); }, color: 'text-red-500' },
+                ].filter(item => !item.hide).map((item, i) => (
+                  <button key={i} onClick={item.onClick}
+                    className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 transition-colors rounded ${item.color}`}>
+                    <item.icon size={16} />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          portalRoot
+        )
       )}
 
-      <motion.div
-        ref={messageRef}
-        drag={!msg.deleted_at ? 'x' : false}
-        dragConstraints={{ left: isMe ? -100 : 0, right: isMe ? 0 : 100 }}
-        dragElastic={0.2}
-        onDragStart={() => { setIsSwiping(true); setActiveMessageId(null); }}
-        onDragEnd={handleDragEnd}
-        animate={controls}
-        className={`${bubbleBase} ${isMe ? bubbleIsMe : bubbleOther} transition-transform duration-200`}
-      >
-        {/* Reply preview */}
-        {msg.replied_message && (
-          <div className={`mx-2 mt-2 mb-1 p-2 rounded-xl text-[11px] border-l-[3px] overflow-hidden ${
-            isMe ? 'bg-black/15 border-white/50 text-blue-50' : 'bg-blue-50 border-blue-500 text-slate-500'
-          }`}>
-            <p className="font-black text-[9px] uppercase tracking-wider opacity-80 mb-0.5">
-              {msg.replied_message.sender_id === currentUserId ? 'Tu' : otherParticipantName}
-            </p>
-            <p className="truncate opacity-75 font-medium">{msg.replied_message.content || '📎 Mídia'}</p>
-          </div>
-        )}
-
-        <div className="px-3.5 py-2">
-          {msg.deleted_at ? (
-            <p className="italic opacity-50 flex items-center gap-2 py-0.5 text-sm">
-              <Trash2 size={13} /> Mensagem apagada
-            </p>
-          ) : (
-            <>
-              {msg.type === 'text' && (
-                <p className="leading-relaxed text-[15px] font-medium break-words">
-                  {msg.content}
-                </p>
-              )}
-              {msg.type === 'image' && (
-                <div className="rounded-xl overflow-hidden mb-1 -mx-1">
-                  <Image src={msg.media_url!} alt="Imagem" width={400} height={300} className="w-full h-auto max-h-72 object-cover" unoptimized />
-                </div>
-              )}
-              {msg.type === 'video' && (
-                <div className="rounded-xl overflow-hidden mb-1 bg-black -mx-1">
-                  <video src={msg.media_url} controls className="w-full max-h-72" />
-                </div>
-              )}
-              {(msg.type === 'voice' || msg.type === 'audio') && msg.media_url && (
-                <TelegramVoicePlayer src={msg.media_url} isMe={isMe} />
-              )}
-              {msg.type === 'file' && (
-                <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
-                  className={`flex items-center gap-3 p-3 rounded-xl -mx-1 transition-colors ${isMe ? 'bg-white/10 hover:bg-white/20' : 'bg-slate-50 hover:bg-slate-100'}`}>
-                  <Paperclip size={20} className={isMe ? 'text-white/80' : 'text-blue-600'} />
-                  <div className="text-sm truncate">
-                    <p className="font-bold">Ficheiro</p>
-                    <p className="opacity-60 text-[10px]">Baixar</p>
-                  </div>
-                </a>
-              )}
-              {msg.type === 'poll' && msg.poll_data && (
-                <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
-              )}
-
-              {/* ⏱️ Hora no canto inferior direito */}
-              <div className={`flex items-center justify-end gap-1 mt-1.5 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
-                {msg.updated_at && !msg.deleted_at && (
-                  <span className="text-[9px] italic opacity-75 mr-1">editada</span>
-                )}
-                <span className="text-[9px] font-bold">
-                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                {isMe && !msg.deleted_at && (
-                  <span className="ml-0.5">
-                    {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
-                  </span>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Reactions */}
-          {hasReactions && (
-            <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
-              {msg.reactions!.map((r, i) => (
-                <button key={i} onClick={() => onReact(msg.id, r.emoji)}
-                  className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[13px] border bg-white shadow-sm transition-all active:scale-90 ${
-                    r.users.includes(currentUserId) ? 'border-blue-300 bg-blue-50' : 'border-slate-100'
-                  }`}>
-                  {r.emoji}
-                  {r.count > 1 && <span className="text-[10px] font-black text-slate-600 ml-0.5">{r.count}</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </motion.div>
-
-      {/* ═══════ PORTAL: apenas overlay + barra de ações (sem clone) ═══════ */}
-      {isActive && portalRoot && messageRect && (
+      {/* ── Barra flutuante (desktop) ── */}
+      {isActive && !isTouchDevice.current && messageRect && portalRoot && (
         <>
-          {/* Overlay */}
           {createPortal(
             <div
               className="fixed inset-0 backdrop-blur-md bg-black/10 z-[999] transition-opacity duration-200"
-              onClick={handleClose}
+              onClick={closeFloatingBar}
             />,
             portalRoot
           )}
-
-          {/* Barra de reações + menu */}
           {createPortal(
             <PortalBar
               messageRect={messageRect}
@@ -336,19 +269,156 @@ export function MessageBubble({
               onReply={onReply}
               onEdit={onEdit}
               onDelete={onDelete}
-              handleClose={handleClose}
+              handleClose={closeFloatingBar}
             />,
             portalRoot
           )}
         </>
       )}
-    </div>
+
+      {/* ════ Bolha de mensagem ════ */}
+      <div
+        ref={wrapperRef}
+        className={`group relative ${isActive ? 'z-[1000]' : 'z-10'} flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'} ${isPreview ? '' : 'pointer-events-none'}`}
+      >
+        {/* Indicador de arrasto */}
+        {!msg.deleted_at && isSwiping && (
+          <motion.div
+            style={{ opacity: replyOpacity, scale: replyScale }}
+            className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none`}
+          >
+            <Reply size={22} className="stroke-[3]" />
+          </motion.div>
+        )}
+
+        <motion.div
+          ref={messageRef}
+          drag={!msg.deleted_at && !isPreview ? 'x' : false}
+          dragConstraints={{ left: isMe ? -100 : 0, right: isMe ? 0 : 100 }}
+          dragElastic={0.2}
+          onDragStart={() => { setIsSwiping(true); setActiveMessageId(null); }}
+          onDragEnd={handleDragEnd}
+          animate={controls}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isPreview) return;
+            if (isTouchDevice.current) {
+              handleMobileTap();
+            } else {
+              handleToggleActive();
+            }
+          }}
+          className={`${bubbleBase} ${isMe ? bubbleIsMe : bubbleOther} ${isPreview ? '' : 'pointer-events-auto'} transition-transform duration-200`}
+        >
+          {/* Reply preview */}
+          {msg.replied_message && (
+            <div className={`mx-2 mt-2 mb-1 p-2 rounded-xl text-[11px] border-l-[3px] overflow-hidden ${
+              isMe ? 'bg-black/15 border-white/50 text-blue-50' : 'bg-blue-50 border-blue-500 text-slate-500'
+            }`}>
+              <p className="font-black text-[9px] uppercase tracking-wider opacity-80 mb-0.5">
+                {msg.replied_message.sender_id === currentUserId ? 'Tu' : otherParticipantName}
+              </p>
+              <p className="truncate opacity-75 font-medium">{msg.replied_message.content || '📎 Mídia'}</p>
+            </div>
+          )}
+
+          <div className="px-3.5 py-2">
+            {msg.deleted_at ? (
+              <p className="italic opacity-50 flex items-center gap-2 py-0.5 text-sm">
+                <Trash2 size={13} /> Mensagem apagada
+              </p>
+            ) : (
+              <>
+                {msg.type === 'text' && (
+                  <p className="leading-relaxed text-[15px] font-medium break-words overflow-hidden">
+                    {msg.content}
+                    {/* HORA INLINE, estilo WhatsApp */}
+                    <span
+                      className={`float-right ml-2 inline-flex items-center gap-1 text-[9px] font-bold leading-relaxed ${
+                        isMe ? 'text-blue-200/80' : 'text-slate-400/80'
+                      }`}
+                      style={{ marginBottom: '2px' }}
+                    >
+                      {msg.updated_at && !msg.deleted_at && <span className="text-[9px] italic opacity-75">edit</span>}
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {isMe && !msg.deleted_at && (
+                        <span className="ml-0.5">
+                          {msg.seen_at ? <CheckCheck size={12} /> : <Check size={12} className="opacity-50" />}
+                        </span>
+                      )}
+                    </span>
+                    <span className="clear-both block h-0" />
+                  </p>
+                )}
+
+                {msg.type === 'image' && (
+                  <div className="rounded-xl overflow-hidden mb-1 -mx-1">
+                    <Image src={msg.media_url!} alt="Imagem" width={400} height={300} className="w-full h-auto max-h-72 object-cover" unoptimized />
+                  </div>
+                )}
+                {msg.type === 'video' && (
+                  <div className="rounded-xl overflow-hidden mb-1 bg-black -mx-1">
+                    <video src={msg.media_url} controls className="w-full max-h-72" />
+                  </div>
+                )}
+                {(msg.type === 'voice' || msg.type === 'audio') && msg.media_url && (
+                  <TelegramVoicePlayer src={msg.media_url} isMe={isMe} />
+                )}
+                {msg.type === 'file' && (
+                  <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+                    className={`flex items-center gap-3 p-3 rounded-xl -mx-1 transition-colors ${isMe ? 'bg-white/10 hover:bg-white/20' : 'bg-slate-50 hover:bg-slate-100'}`}>
+                    <Paperclip size={20} className={isMe ? 'text-white/80' : 'text-blue-600'} />
+                    <div className="text-sm truncate">
+                      <p className="font-bold">Ficheiro</p>
+                      <p className="opacity-60 text-[10px]">Baixar</p>
+                    </div>
+                  </a>
+                )}
+                {msg.type === 'poll' && msg.poll_data && (
+                  <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
+                )}
+
+                {/* HORA PARA TIPOS NÃO TEXTO (linha separada) */}
+                {msg.type !== 'text' && (
+                  <div className={`flex items-center justify-end gap-1 mt-1.5 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
+                    {msg.updated_at && !msg.deleted_at && (
+                      <span className="text-[9px] italic opacity-75 mr-1">editada</span>
+                    )}
+                    <span className="text-[9px] font-bold">
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {isMe && !msg.deleted_at && (
+                      <span className="ml-0.5">
+                        {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Reactions */}
+            {msg.reactions && msg.reactions.length > 0 && (
+              <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                {msg.reactions!.map((r, i) => (
+                  <button key={i} onClick={() => onReact(msg.id, r.emoji)}
+                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[13px] border bg-white shadow-sm transition-all active:scale-90 ${
+                      r.users.includes(currentUserId) ? 'border-blue-300 bg-blue-50' : 'border-slate-100'
+                    }`}>
+                    {r.emoji}
+                    {r.count > 1 && <span className="text-[10px] font-black text-slate-600 ml-0.5">{r.count}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </>
   );
 }
 
-/* ════════════════════════════════════════════════════════════════
-   Componente auxiliar da barra (posicionada acima da mensagem)
-   ════════════════════════════════════════════════════════════════ */
+/* ═══════ PortalBar (flutuante desktop) ═══════ */
 function PortalBar({
   messageRect,
   msg,
@@ -389,7 +459,7 @@ function PortalBar({
     >
       {/* Reações */}
       <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2 self-center">
-        {['👍', '❤️', '😂', '🔥'].map(emoji => (
+        {QUICK_EMOJIS.map(emoji => (
           <button
             key={emoji}
             onClick={(e) => {
