@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { ChatInput } from '@/components/chat/chat-input';
 import { PollMessage } from '@/components/chat/poll-message';
 import { MessageBubble } from '@/components/chat/message-bubble';
+import { MessageActionsOverlay } from '@/components/chat/message-actions-overlay';
 import {
   uploadChatMedia,
   markMessagesAsSeen,
@@ -376,6 +377,17 @@ export default function ChatRoom() {
     });
   };
 
+const [activeMessage, setActiveMessage] = useState<Message | null>(null);
+
+const openMessageActions = useCallback((msg: Message) => {
+  setActiveMessage(msg);
+}, []);
+
+const closeMessageActions = useCallback(() => {
+  setActiveMessage(null);
+}, []);
+
+
   const handleDeleteMessage = async (id: string) => {
     await deleteMessage(id).catch(console.error);
   };
@@ -489,6 +501,17 @@ export default function ChatRoom() {
                   </span>
                 </div>
               )}
+              <MessageActionsOverlay
+                message={activeMessage}
+                currentUserId={user?.id || ''}
+                otherParticipantName={otherParticipant?.profiles?.full_name}
+                onClose={closeMessageActions}
+                onReact={handleReact}
+                onReply={setReplyTo}
+                onEdit={setEditingMessage}
+                onDelete={handleDeleteMessage}
+              />
+
               <MessageBubble
                 msg={{ ...msg, replied_message: repliedMsg as any }}
                 isMe={isMe}
