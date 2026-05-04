@@ -588,7 +588,6 @@ export default function ChatRoom() {
                 </div>
               )}
 
-              {/* ⭐ O overlay NÃO está aqui dentro! Só a bolha */}
               <MessageBubble
                 msg={{ ...msg, replied_message: repliedMsg as any }}
                 isMe={isMe}
@@ -603,7 +602,7 @@ export default function ChatRoom() {
                 resetPosition={resetPositionCounter}
                 activeMessageId={activeMessageId}
                 setActiveMessageId={handleSetActiveMessage}
-                onOpenActions={openMessageActions} // 👈 novo prop
+                onOpenActions={openMessageActions}
               />
             </div>
           );
@@ -637,7 +636,7 @@ export default function ChatRoom() {
         <div ref={bottomRef} className="h-1" />
       </div>
 
-      {/* ⭐ OVERLAY GLOBAL – UMA ÚNICA INSTÂNCIA, FORA DO MAP */}
+      {/* ⭐ OVERLAY GLOBAL – fora do map */}
       <AnimatePresence>
         {activeMessage && (
           <MessageActionsOverlay
