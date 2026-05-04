@@ -4,16 +4,17 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, useAnimation } from 'motion/react';
 import {
   Check, CheckCheck, Trash2, Edit2, Reply,
-  Paperclip, Smile, MoreVertical,
-  Play, Pause, Mic
+  Paperclip, Play, Pause, Mic
 } from 'lucide-react';
 import Image from 'next/image';
 import { createPortal } from 'react-dom';
 import { PollMessage } from './poll-message';
 import { Message } from '@/lib/chat-types';
 
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥'];
+/* ─── Constantes ─── */
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '🔥'];
 
+/* ─── Props ─── */
 interface MessageBubbleProps {
   msg: Message;
   isMe: boolean;
@@ -28,12 +29,10 @@ interface MessageBubbleProps {
   resetPosition?: number;
   activeMessageId: string | null;
   setActiveMessageId: (id: string | null) => void;
-  isPreview?: boolean; // <-- novo: usado no modal
+  isPreview?: boolean; // desliga interações no modo preview
 }
 
-/* ══════════════════════════════════════════════════════════════
-   Player de voz (inalterado)
-   ══════════════════════════════════════════════════════════════ */
+/* ─── Componente auxiliar: Player de voz ─── */
 function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -92,9 +91,9 @@ function TelegramVoicePlayer({ src, isMe }: { src: string; isMe: boolean }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   COMPONENTE PRINCIPAL
-   ══════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE PRINCIPAL MessageBubble
+   ═══════════════════════════════════════════════════════ */
 export function MessageBubble({
   msg, isMe, isFirstInGroup, isLastInGroup,
   onReply, onEdit, onDelete, onReact,
@@ -102,23 +101,23 @@ export function MessageBubble({
   activeMessageId, setActiveMessageId,
   isPreview = false,
 }: MessageBubbleProps) {
-  // ─── Estados locais ───
-  const [isSwiping, setIsSwiping] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const messageRef = useRef<HTMLDivElement>(null);
-  const [messageRect, setMessageRect] = useState<DOMRect | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const [previewMessage, setPreviewMessage] = useState<Message | null>(null); // para modal mobile
-
-  // ─── Drag para responder ───
+  // ─── Swipe para responder ───
   const x = useMotionValue(0);
   const controls = useAnimation();
   const replyOpacity = useTransform(x, isMe ? [-60, 0] : [0, 60], [1, 0]);
   const replyScale = useTransform(x, isMe ? [-60, 0] : [0, 60], [1.2, 0.8]);
+  const [isSwiping, setIsSwiping] = useState(false);
+
+  // ─── Estado local do modal de preview (mobile) ───
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [messageRect, setMessageRect] = useState<DOMRect | null>(null);
 
   const portalRoot = typeof document !== 'undefined' ? document.getElementById('portal-root') : null;
 
-  // ─── Detecta touch ───
+  // ─── Detecta dispositivo touch ───
   const isTouchDevice = useRef(false);
   useEffect(() => {
     const handler = () => { isTouchDevice.current = true; };
@@ -126,16 +125,17 @@ export function MessageBubble({
     return () => window.removeEventListener('touchstart', handler);
   }, []);
 
-  const isActive = activeMessageId === msg.id;
+  // ─── Se é a mensagem activa (barra flutuante desktop) ───
+  const isActiveBar = activeMessageId === msg.id && !isPreview;
 
-  // ─── Reset de posição de swipe ───
+  // ─── Reset de swipe ───
   useEffect(() => {
     if (resetPosition !== undefined) {
       controls.start({ x: 0 });
     }
   }, [resetPosition, controls]);
 
-  // ─── Fim do swipe ───
+  // ─── Swipe end ───
   const handleDragEnd = useCallback((_: any, info: any) => {
     setIsSwiping(false);
     const threshold = 60;
@@ -145,143 +145,209 @@ export function MessageBubble({
     setActiveMessageId(null);
   }, [isMe, msg, onReply, controls, setActiveMessageId]);
 
-  // ─── Ativar barra flutuante (desktop) ───
-  const handleToggleActive = useCallback(() => {
-    if (isTouchDevice.current) return; // mobile não usa barra
-    if (isActive) {
-      setActiveMessageId(null);
-    } else {
-      const rect = messageRef.current?.getBoundingClientRect();
-      if (rect) {
-        setMessageRect(rect);
-        setActiveMessageId(msg.id);
-      }
-    }
-  }, [isActive, msg.id, setActiveMessageId]);
+  // ════ Handlers de interação ════
 
-  // ─── Duplo toque no mobile (abre preview centralizado) ───
-  const lastTap = useRef<number>(0);
-  const handleMobileTap = useCallback(() => {
+  // Abrir barra flutuante (desktop)
+  const openFloatingBar = useCallback((rect?: DOMRect) => {
+    if (isTouchDevice.current) return;
+    const r = rect || messageRef.current?.getBoundingClientRect();
+    if (r) {
+      setMessageRect(r);
+      setActiveMessageId(msg.id);
+    }
+  }, [msg.id, setActiveMessageId]);
+
+  const closeFloatingBar = useCallback(() => {
+    setActiveMessageId(null);
+  }, [setActiveMessageId]);
+
+  // Duplo toque mobile (open preview)
+  const lastTap = useRef(0);
+  const handleDoubleTap = useCallback(() => {
     if (!isTouchDevice.current) return;
     const now = Date.now();
     if (now - lastTap.current < 300) {
-      // duplo toque → abre modal de preview
-      setPreviewMessage(msg);
-      lastTap.current = 0; // reset
+      // Double tap detectado
+      setPreviewOpen(true);
+      lastTap.current = 0;
     } else {
       lastTap.current = now;
     }
-  }, [msg]);
+  }, []);
 
-  // ─── Fechar preview e barra ───
-  const closePreview = useCallback(() => setPreviewMessage(null), []);
-  const closeFloatingBar = useCallback(() => setActiveMessageId(null), [setActiveMessageId]);
+  // Fechar preview
+  const closePreview = useCallback(() => setPreviewOpen(false), []);
 
-  // ─── Classes do balão ───
-  const bubbleBase = `relative max-w-[75%] sm:max-w-[68%] select-none break-words ${isPreview ? 'pointer-events-none' : ''}`;
-  const bubbleIsMe = `bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm hover:shadow-md
+  // ESC fecha tudo
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (previewOpen) setPreviewOpen(false);
+        if (activeMessageId === msg.id) setActiveMessageId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [previewOpen, activeMessageId, msg.id, setActiveMessageId]);
+
+  // Right-click desktop → abre barra flutuante
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (isPreview) return;
+    e.preventDefault();
+    if (!isTouchDevice.current) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      openFloatingBar(rect);
+    }
+  }, [isPreview, openFloatingBar]);
+
+  // Click normal (desktop) – também abre barra flutuante, replicando o comportamento do right-click para simplificar
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (isPreview || isTouchDevice.current) return;
+    e.stopPropagation();
+    if (isActiveBar) {
+      closeFloatingBar();
+    } else {
+      openFloatingBar();
+    }
+  }, [isPreview, isActiveBar, closeFloatingBar, openFloatingBar]);
+
+  // ════ Classes do balão ════
+  const bubbleBase = `relative select-none break-words ${
+    isPreview ? 'max-w-full' : 'max-w-[75%] sm:max-w-[68%]'
+  }`;
+  const bubbleMe = `bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm hover:shadow-md
     ${isFirstInGroup ? 'rounded-[20px] rounded-tr-[5px]' : 'rounded-[20px]'}
     ${!isLastInGroup && !isPreview ? 'rounded-br-[8px]' : ''}`;
   const bubbleOther = `bg-gradient-to-br from-white to-slate-50 text-slate-800 shadow-sm hover:shadow-md
     ${isFirstInGroup ? 'rounded-[20px] rounded-tl-[5px]' : 'rounded-[20px]'}
     ${!isLastInGroup && !isPreview ? 'rounded-bl-[8px]' : ''}`;
 
-  // ──────── RENDER PRINCIPAL ────────
-  return (
-    <>
-      {/* ── Overlay + Modal de preview (mobile) ── */}
-      {previewMessage && portalRoot && (
-        createPortal(
-          <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center" style={{ pointerEvents: 'none' }}>
-            {/* backdrop */}
-            <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              onClick={closePreview}
-            />
-            {/* conteúdo */}
-            <div className="flex flex-col items-center gap-3 z-10" style={{ pointerEvents: 'auto' }}>
-              {/* Reações */}
-              <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
-                {QUICK_EMOJIS.map(emoji => (
-                  <button key={emoji} onClick={(e) => { e.stopPropagation(); onReact(msg.id, emoji); closePreview(); }}
-                    className="text-lg transition-transform active:scale-125">
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-
-              {/* Bolha clonada (sem interação) */}
-              <div className="scale-105 origin-center">
-                <MessageBubble
-                  msg={msg}
-                  isMe={isMe}
-                  isFirstInGroup={true}
-                  isLastInGroup={true}
-                  currentUserId={currentUserId}
-                  otherParticipantName={otherParticipantName}
-                  onReply={() => { onReply(msg); closePreview(); }}
-                  onEdit={() => { onEdit(msg); closePreview(); }}
-                  onDelete={() => { onDelete(msg.id); closePreview(); }}
-                  onReact={onReact}
-                  resetPosition={0}
-                  activeMessageId={null}
-                  setActiveMessageId={() => {}}
-                  isPreview={true}
-                />
-              </div>
-
-              {/* Menu */}
-              <div className="bg-white rounded-lg shadow-xl p-2 flex gap-1">
-                {[
-                  { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closePreview(); }, color: 'text-slate-700' },
-                  { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closePreview(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
-                  { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closePreview(); }, color: 'text-red-500' },
-                ].filter(item => !item.hide).map((item, i) => (
-                  <button key={i} onClick={item.onClick}
-                    className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 transition-colors rounded ${item.color}`}>
-                    <item.icon size={16} />
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>,
-          portalRoot
-        )
+  // Badge de hora (WhatsApp style)
+  const TimeStamp = () => (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${
+      isMe ? 'text-blue-200/80' : 'text-slate-400/80'
+    }`}>
+      {msg.updated_at && !msg.deleted_at && <span className="italic text-[9px]">edit</span>}
+      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      {isMe && !msg.deleted_at && (
+        <span className="ml-0.5">
+          {msg.seen_at ? <CheckCheck size={12} /> : <Check size={12} className="opacity-50" />}
+        </span>
       )}
+    </span>
+  );
 
-      {/* ── Barra flutuante (desktop) ── */}
-      {isActive && !isTouchDevice.current && messageRect && portalRoot && (
-        <>
-          {createPortal(
-            <div
-              className="fixed inset-0 backdrop-blur-md bg-black/10 z-[999] transition-opacity duration-200"
-              onClick={closeFloatingBar}
-            />,
-            portalRoot
-          )}
-          {createPortal(
-            <PortalBar
-              messageRect={messageRect}
+  // ════ Preview Modal (mobile) ════
+  const renderPreviewModal = () => {
+    if (!previewOpen || !portalRoot) return null;
+    return createPortal(
+      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center">
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closePreview} />
+
+        {/* Conteúdo centralizado */}
+        <div className="flex flex-col items-center gap-3 z-10">
+          {/* Reações */}
+          <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
+            {QUICK_REACTIONS.map(emoji => (
+              <button key={emoji} onClick={() => { onReact(msg.id, emoji); closePreview(); }}
+                className="text-lg transition-transform active:scale-125">
+                {emoji}
+              </button>
+            ))}
+          </div>
+
+          {/* Bolha clonada (sem interação, igual à original) */}
+          <div className="scale-105">
+            <MessageBubble
               msg={msg}
               isMe={isMe}
+              isFirstInGroup={true}
+              isLastInGroup={true}
+              currentUserId={currentUserId}
+              otherParticipantName={otherParticipantName}
+              onReply={() => { onReply(msg); closePreview(); }}
+              onEdit={() => { onEdit(msg); closePreview(); }}
+              onDelete={() => { onDelete(msg.id); closePreview(); }}
               onReact={onReact}
-              onReply={onReply}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              handleClose={closeFloatingBar}
-            />,
-            portalRoot
-          )}
-        </>
-      )}
+              resetPosition={0}
+              activeMessageId={null}
+              setActiveMessageId={() => {}}
+              isPreview={true}
+            />
+          </div>
 
-      {/* ════ Bolha de mensagem ════ */}
+          {/* Menu de ações */}
+          <div className="bg-white rounded-xl shadow-lg flex gap-1 px-3 py-2">
+            {[
+              { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closePreview(); }, color: 'text-slate-700' },
+              { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closePreview(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
+              { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closePreview(); }, color: 'text-red-500' },
+            ].filter(item => !item.hide).map((item, i) => (
+              <button key={i} onClick={item.onClick}
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 transition-colors rounded ${item.color}`}>
+                <item.icon size={16} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>,
+      portalRoot
+    );
+  };
+
+  // ════ Barra flutuante (desktop) ════
+  const renderFloatingBar = () => {
+    if (!isActiveBar || !messageRect || !portalRoot) return null;
+    const top = Math.max(10, messageRect.top - 70);
+    const left = Math.min(Math.max(20, messageRect.left + messageRect.width / 2), window.innerWidth - 140);
+
+    return createPortal(
+      <>
+        <div className="fixed inset-0 bg-black/10 backdrop-blur-sm z-[999] transition-opacity" onClick={closeFloatingBar} />
+        <div style={{ position: 'fixed', top, left, transform: 'translateX(-50%)' }} className="z-[1000] flex flex-col gap-2">
+          <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2">
+            {QUICK_REACTIONS.map(emoji => (
+              <button key={emoji} onClick={() => { onReact(msg.id, emoji); closeFloatingBar(); }}
+                className="text-lg active:scale-125 transition-transform">
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <div className="bg-white rounded-xl shadow-lg flex gap-1 px-3 py-2">
+            {[
+              { icon: Reply, label: 'Responder', onClick: () => { onReply(msg); closeFloatingBar(); }, color: 'text-slate-700' },
+              { icon: Edit2, label: 'Editar', onClick: () => { onEdit(msg); closeFloatingBar(); }, color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
+              { icon: Trash2, label: 'Apagar', onClick: () => { onDelete(msg.id); closeFloatingBar(); }, color: 'text-red-500' },
+            ].filter(item => !item.hide).map((item, i) => (
+              <button key={i} onClick={item.onClick}
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 rounded ${item.color}`}>
+                <item.icon size={16} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </>,
+      portalRoot
+    );
+  };
+
+  // ════ Renderização principal ════
+  return (
+    <>
+      {renderPreviewModal()}
+      {renderFloatingBar()}
+
+      {/* ════ Wrapper (pointer-events-none para evitar zona fantasma) ════ */}
       <div
         ref={wrapperRef}
-        className={`group relative ${isActive ? 'z-[1000]' : 'z-10'} flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${isFirstInGroup ? 'mt-4' : 'mt-0.5'} ${isPreview ? '' : 'pointer-events-none'}`}
+        className={`flex w-full items-end gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'} ${
+          isFirstInGroup ? 'mt-4' : 'mt-0.5'
+        } ${isPreview ? '' : 'pointer-events-none'}`}
       >
-        {/* Indicador de arrasto */}
+        {/* Indicador de swipe */}
         {!msg.deleted_at && isSwiping && (
           <motion.div
             style={{ opacity: replyOpacity, scale: replyScale }}
@@ -291,6 +357,7 @@ export function MessageBubble({
           </motion.div>
         )}
 
+        {/* ════ Bolha (pointer-events-auto, apenas aqui os eventos são capturados) ════ */}
         <motion.div
           ref={messageRef}
           drag={!msg.deleted_at && !isPreview ? 'x' : false}
@@ -299,16 +366,12 @@ export function MessageBubble({
           onDragStart={() => { setIsSwiping(true); setActiveMessageId(null); }}
           onDragEnd={handleDragEnd}
           animate={controls}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isPreview) return;
-            if (isTouchDevice.current) {
-              handleMobileTap();
-            } else {
-              handleToggleActive();
-            }
-          }}
-          className={`${bubbleBase} ${isMe ? bubbleIsMe : bubbleOther} ${isPreview ? '' : 'pointer-events-auto'} transition-transform duration-200`}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleTap}
+          onContextMenu={handleContextMenu}
+          className={`${bubbleBase} ${isMe ? bubbleMe : bubbleOther} ${
+            isPreview ? '' : 'pointer-events-auto'
+          } transition-transform duration-200`}
         >
           {/* Reply preview */}
           {msg.replied_message && (
@@ -322,24 +385,21 @@ export function MessageBubble({
             </div>
           )}
 
-          <div className="px-3.5 py-2">
+          <div className="px-3.5 py-2 relative">
             {msg.deleted_at ? (
               <p className="italic opacity-50 flex items-center gap-2 py-0.5 text-sm">
                 <Trash2 size={13} /> Mensagem apagada
               </p>
             ) : (
               <>
+                {/* Conteúdo */}
                 {msg.type === 'text' && (
                   <p className="leading-relaxed text-[15px] font-medium break-words overflow-hidden">
                     {msg.content}
-                    {/* HORA INLINE, estilo WhatsApp */}
-                    <span
-                      className={`float-right ml-2 inline-flex items-center gap-1 text-[9px] font-bold leading-relaxed ${
-                        isMe ? 'text-blue-200/80' : 'text-slate-400/80'
-                      }`}
-                      style={{ marginBottom: '2px' }}
-                    >
-                      {msg.updated_at && !msg.deleted_at && <span className="text-[9px] italic opacity-75">edit</span>}
+                    {/* Hora flutuante dentro do texto */}
+                    <span className="float-right ml-2 inline-flex items-center gap-1 text-[10px] font-medium leading-relaxed"
+                      style={{ color: isMe ? 'rgba(255,255,255,0.7)' : 'rgba(100,116,139,0.8)' }}>
+                      {msg.updated_at && !msg.deleted_at && <span className="italic text-[9px]">edit</span>}
                       {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       {isMe && !msg.deleted_at && (
                         <span className="ml-0.5">
@@ -350,49 +410,46 @@ export function MessageBubble({
                     <span className="clear-both block h-0" />
                   </p>
                 )}
-
                 {msg.type === 'image' && (
-                  <div className="rounded-xl overflow-hidden mb-1 -mx-1">
-                    <Image src={msg.media_url!} alt="Imagem" width={400} height={300} className="w-full h-auto max-h-72 object-cover" unoptimized />
-                  </div>
+                  <>
+                    <div className="rounded-xl overflow-hidden mb-1 -mx-1">
+                      <Image src={msg.media_url!} alt="Imagem" width={400} height={300} className="w-full h-auto max-h-72 object-cover" unoptimized />
+                    </div>
+                    <div className="flex justify-end"><TimeStamp /></div>
+                  </>
                 )}
                 {msg.type === 'video' && (
-                  <div className="rounded-xl overflow-hidden mb-1 bg-black -mx-1">
-                    <video src={msg.media_url} controls className="w-full max-h-72" />
-                  </div>
+                  <>
+                    <div className="rounded-xl overflow-hidden mb-1 bg-black -mx-1">
+                      <video src={msg.media_url} controls className="w-full max-h-72" />
+                    </div>
+                    <div className="flex justify-end"><TimeStamp /></div>
+                  </>
                 )}
                 {(msg.type === 'voice' || msg.type === 'audio') && msg.media_url && (
-                  <TelegramVoicePlayer src={msg.media_url} isMe={isMe} />
+                  <>
+                    <TelegramVoicePlayer src={msg.media_url} isMe={isMe} />
+                    <div className="flex justify-end mt-1"><TimeStamp /></div>
+                  </>
                 )}
                 {msg.type === 'file' && (
-                  <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
-                    className={`flex items-center gap-3 p-3 rounded-xl -mx-1 transition-colors ${isMe ? 'bg-white/10 hover:bg-white/20' : 'bg-slate-50 hover:bg-slate-100'}`}>
-                    <Paperclip size={20} className={isMe ? 'text-white/80' : 'text-blue-600'} />
-                    <div className="text-sm truncate">
-                      <p className="font-bold">Ficheiro</p>
-                      <p className="opacity-60 text-[10px]">Baixar</p>
-                    </div>
-                  </a>
+                  <>
+                    <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+                      className={`flex items-center gap-3 p-3 rounded-xl -mx-1 transition-colors ${isMe ? 'bg-white/10 hover:bg-white/20' : 'bg-slate-50 hover:bg-slate-100'}`}>
+                      <Paperclip size={20} className={isMe ? 'text-white/80' : 'text-blue-600'} />
+                      <div className="text-sm truncate">
+                        <p className="font-bold">Ficheiro</p>
+                        <p className="opacity-60 text-[10px]">Baixar</p>
+                      </div>
+                    </a>
+                    <div className="flex justify-end mt-1"><TimeStamp /></div>
+                  </>
                 )}
                 {msg.type === 'poll' && msg.poll_data && (
-                  <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
-                )}
-
-                {/* HORA PARA TIPOS NÃO TEXTO (linha separada) */}
-                {msg.type !== 'text' && (
-                  <div className={`flex items-center justify-end gap-1 mt-1.5 ${isMe ? 'text-blue-200/80' : 'text-slate-400/80'}`}>
-                    {msg.updated_at && !msg.deleted_at && (
-                      <span className="text-[9px] italic opacity-75 mr-1">editada</span>
-                    )}
-                    <span className="text-[9px] font-bold">
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {isMe && !msg.deleted_at && (
-                      <span className="ml-0.5">
-                        {msg.seen_at ? <CheckCheck size={14} /> : <Check size={14} className="opacity-50" />}
-                      </span>
-                    )}
-                  </div>
+                  <>
+                    <PollMessage messageId={msg.id} pollData={msg.poll_data} isMe={isMe} />
+                    <div className="flex justify-end mt-1"><TimeStamp /></div>
+                  </>
                 )}
               </>
             )}
@@ -402,7 +459,7 @@ export function MessageBubble({
               <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
                 {msg.reactions!.map((r, i) => (
                   <button key={i} onClick={() => onReact(msg.id, r.emoji)}
-                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[13px] border bg-white shadow-sm transition-all active:scale-90 ${
+                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[13px] border bg-white shadow-sm active:scale-90 ${
                       r.users.includes(currentUserId) ? 'border-blue-300 bg-blue-50' : 'border-slate-100'
                     }`}>
                     {r.emoji}
@@ -415,86 +472,5 @@ export function MessageBubble({
         </motion.div>
       </div>
     </>
-  );
-}
-
-/* ═══════ PortalBar (flutuante desktop) ═══════ */
-function PortalBar({
-  messageRect,
-  msg,
-  isMe,
-  onReact,
-  onReply,
-  onEdit,
-  onDelete,
-  handleClose,
-}: {
-  messageRect: DOMRect;
-  msg: Message;
-  isMe: boolean;
-  onReact: (id: string, emoji: string) => void;
-  onReply: (msg: Message) => void;
-  onEdit: (msg: Message) => void;
-  onDelete: (id: string) => void;
-  handleClose: () => void;
-}) {
-  const portalRoot = document.getElementById('portal-root');
-  if (!portalRoot) return null;
-
-  const top = Math.max(10, messageRect.top - 70);
-  const left = Math.min(
-    Math.max(20, messageRect.left + messageRect.width / 2),
-    window.innerWidth - 140
-  );
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top,
-        left,
-        transform: 'translateX(-50%)',
-      }}
-      className="z-[1000] flex flex-col gap-2"
-    >
-      {/* Reações */}
-      <div className="bg-white rounded-full shadow-xl px-3 py-1 flex gap-2 self-center">
-        {QUICK_EMOJIS.map(emoji => (
-          <button
-            key={emoji}
-            onClick={(e) => {
-              e.stopPropagation();
-              onReact(msg.id, emoji);
-              handleClose();
-            }}
-            className="text-lg transition-transform active:scale-125"
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
-
-      {/* Menu */}
-      <div className="bg-white rounded-lg shadow-xl p-2 flex gap-1 self-center">
-        {[
-          { icon: Reply, label: 'Responder', onClick: () => onReply(msg), color: 'text-slate-700' },
-          { icon: Edit2, label: 'Editar', onClick: () => onEdit(msg), color: 'text-slate-700', hide: !isMe || msg.type !== 'text' },
-          { icon: Trash2, label: 'Apagar', onClick: () => onDelete(msg.id), color: 'text-red-500' },
-        ].filter(item => !item.hide).map((item, i) => (
-          <button
-            key={i}
-            onClick={(e) => {
-              e.stopPropagation();
-              item.onClick();
-              handleClose();
-            }}
-            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-slate-50 transition-colors rounded ${item.color}`}
-          >
-            <item.icon size={16} />
-            {item.label}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
