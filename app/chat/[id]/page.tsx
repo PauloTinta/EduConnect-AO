@@ -142,9 +142,8 @@ export default function ChatRoom() {
             presence: { key: user.id }
           }
         });
-
-        // New messages
-  channel.on('postgres_changes', {
+        
+channel.on('postgres_changes', {
   event: 'INSERT',
   schema: 'public',
   table: 'messages',
@@ -158,47 +157,26 @@ export default function ChatRoom() {
 
   console.log('📩 Nova mensagem realtime:', newMsg);
 
-  setMessages(prev => {
-  // remove temp equivalente
-  const filtered = prev.filter(m => {
-    if (!m.id.startsWith('temp-')) return true;
-
-    return !(
-      m.sender_id === newMsg.sender_id &&
-      Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 5000
-    );
-  });
-
-  // usa upsert aqui
-  const exists = filtered.find(m => m.id === newMsg.id);
-
-  if (exists) {
-    return filtered.map(m =>
-      m.id === newMsg.id
-        ? { ...m, ...newMsg, reactions: m.reactions || [] }
-        : m
-    );
-  }
-
-    return [...filtered, { ...newMsg, reactions: newMsg.reactions ?? [] }];
-  });
+  upsertMessage(newMsg);
 
   if (newMsg.sender_id !== user!.id) {
     markMessagesAsSeen(conversationId, user!.id);
   }
 });
-        // Updates (edit, delete, seen)
-        channel.on('postgres_changes', {
-          event: 'UPDATE', schema: 'public', table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        }, (payload: any) => {
-          if (!isMounted) return;
-          const updated = payload.new as Message;
-          upsertMessage({
-            ...updated,
-            reactions: prev => prev // mantém as existentes
-});
 
+// Updates (edit, delete, seen)
+channel.on('postgres_changes', {
+  event: 'UPDATE',
+  schema: 'public',
+  table: 'messages',
+  filter: `conversation_id=eq.${conversationId}`
+}, (payload: any) => {
+  if (!isMounted) return;
+
+  const updated = payload.new as Message;
+
+  upsertMessage(updated);
+});
 
         // Reactions
         channel.on('postgres_changes', {
@@ -237,7 +215,7 @@ export default function ChatRoom() {
   }
 });
 
-        channelRef.current = channel;
+    channelRef.current = channel;
       } catch (err) {
         console.error('Chat init error:', err);
       } finally {
