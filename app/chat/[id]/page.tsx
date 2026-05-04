@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { ChatInput } from '@/components/chat/chat-input';
 import { PollMessage } from '@/components/chat/poll-message';
 import { MessageBubble } from '@/components/chat/message-bubble';
+import { MessageActionsOverlay } from '@/components/chat/message-actions-overlay';
 import {
   uploadChatMedia,
   markMessagesAsSeen,
@@ -57,6 +58,9 @@ export default function ChatRoom() {
   const [resetPositionCounter, setResetPositionCounter] = useState(0);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 
+  // ⭐ Overlay centralizado (apenas uma instância global)
+  const [activeMessage, setActiveMessage] = useState<Message | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
   const messageIdsRef = useRef<string[]>([]);
@@ -67,9 +71,10 @@ export default function ChatRoom() {
   const presenceChannelRef = useRef<any>(null);
   const [onlineUsers, setOnlineUsers] = useState<Record<string, any>>({});
 
-  // ⭐ Conjunto de IDs inseridos localmente para evitar duplicação
+  // ⭐ IDs inseridos localmente para evitar duplicação via realtime
   const recentlyInsertedRef = useRef<Set<string>>(new Set());
 
+  // ─── Helpers ────────────────────────────────────────
   const scrollToBottom = useCallback((smooth = true) => {
     bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' });
   }, []);
@@ -105,15 +110,13 @@ export default function ChatRoom() {
     });
   }, []);
 
-  // ─── PRESENÇA ONLINE ──────────────────────────────────
+  // ─── PRESENÇA ONLINE (canal global) ─────────────────
   useEffect(() => {
     if (!user) return;
 
     const channel = supabase.channel('global-presence', {
       config: {
-        presence: {
-          key: user.id,
-        },
+        presence: { key: user.id },
       },
     });
 
@@ -135,7 +138,7 @@ export default function ChatRoom() {
 
     return () => {
       channel.unsubscribe();
-      // Atualiza o last_seen ao desligar
+      // atualiza last_seen ao desligar
       supabase
         .from('profiles')
         .update({ last_seen: new Date().toISOString() })
@@ -146,34 +149,42 @@ export default function ChatRoom() {
     };
   }, [user]);
 
-  // Atualizar last_seen em caso de fecho abrupto (beforeunload)
+  // Atualização periódica de last_seen (anti bug)
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const updatePresence = async () => {
+      await supabase
+        .from('profiles')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', user.id);
+    };
+
+    updatePresence();
+
+    const interval = setInterval(updatePresence, 30000); // 30 segundos
+
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // beforeunload para tentativa de último visto
   useEffect(() => {
     if (!user) return;
     const handleBeforeUnload = () => {
-      // Envio síncrono (não garantido, mas ajuda)
-      const payload = JSON.stringify({
-        last_seen: new Date().toISOString(),
-      });
+      const payload = JSON.stringify({ last_seen: new Date().toISOString() });
       navigator.sendBeacon?.('/api/update-last-seen', payload);
-      // Alternativa com fetch bloqueante (menos fiável, mas funciona em alguns browsers)
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/update-last-seen', false); // síncrono
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(payload);
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [user]);
 
-  // Função auxiliar
+  // ─── Verifica se um user está online ────────────────
   const isUserOnline = useCallback(
-    (userId: string) => {
-      return !!onlineUsers[userId];
-    },
+    (userId: string) => !!onlineUsers[userId],
     [onlineUsers]
   );
-  // ─── FIM PRESENÇA ────────────────────────────────────
 
+  // ─── INICIALIZAÇÃO DO CANAL DE MENSAGENS ────────────
   useEffect(() => {
     if (!conversationId || !user?.id) return;
     let isMounted = true;
@@ -197,7 +208,10 @@ export default function ChatRoom() {
 
         if (isMounted) {
           setMessages(
-            (msgs || []).map(m => ({ ...m, reactions: processReactions(m.message_reactions || []) }))
+            (msgs || []).map(m => ({
+              ...m,
+              reactions: processReactions(m.message_reactions || []),
+            }))
           );
         }
 
@@ -224,12 +238,8 @@ export default function ChatRoom() {
             if (!isMounted) return;
             const newMsg = payload.new as Message;
             if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
-
             if (recentlyInsertedRef.current.has(newMsg.id)) return;
-
-            console.log('📩 Nova mensagem realtime:', newMsg);
             upsertMessage(newMsg);
-
             if (newMsg.sender_id !== user!.id) {
               markMessagesAsSeen(conversationId, user!.id);
             }
@@ -275,10 +285,7 @@ export default function ChatRoom() {
         });
 
         channel.subscribe((status: string) => {
-          console.log('Realtime status:', status);
           if (status === 'SUBSCRIBED') console.log('✅ Conectado ao realtime');
-          if (status === 'CHANNEL_ERROR') console.error('❌ Erro no realtime');
-          if (status === 'TIMED_OUT') console.error('⏱️ Timeout realtime');
         });
 
         channelRef.current = channel;
@@ -301,6 +308,7 @@ export default function ChatRoom() {
     };
   }, [conversationId, user]);
 
+  // ─── Scroll ────────────────────────────────────────
   useEffect(() => {
     messageIdsRef.current = messages.map(m => m.id);
     scrollToBottom();
@@ -310,6 +318,7 @@ export default function ChatRoom() {
     if (!loading) scrollToBottom(false);
   }, [loading, scrollToBottom]);
 
+  // ─── Handlers ──────────────────────────────────────
   const handleTyping = useCallback(() => {
     if (!channelRef.current || !user) return;
     channelRef.current.send({
@@ -392,9 +401,7 @@ export default function ChatRoom() {
     }
 
     recentlyInsertedRef.current.add(inserted.id);
-    setTimeout(() => {
-      recentlyInsertedRef.current.delete(inserted.id);
-    }, 5000);
+    setTimeout(() => recentlyInsertedRef.current.delete(inserted.id), 5000);
 
     setMessages(prev =>
       prev.map(m => (m.id === tempId ? { ...inserted, reactions: [] } : m))
@@ -412,9 +419,7 @@ export default function ChatRoom() {
         type: 'voice',
         media_url: url,
       });
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const sendMediaMessage = async (file: File, type: any) => {
@@ -427,9 +432,7 @@ export default function ChatRoom() {
         type,
         media_url: url,
       });
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const sendPollMessage = async (question: string, options: string[]) => {
@@ -446,6 +449,16 @@ export default function ChatRoom() {
     await deleteMessage(id).catch(console.error);
   };
 
+  // ⭐ Overlay handlers
+  const openMessageActions = useCallback((msg: Message) => {
+    setActiveMessage(msg);
+  }, []);
+
+  const closeMessageActions = useCallback(() => {
+    setActiveMessage(null);
+  }, []);
+
+  // ─── LOADING ─────────────────────────────────────
   if (loading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
@@ -454,17 +467,20 @@ export default function ChatRoom() {
     );
   }
 
-  // Determinar estado do cabeçalho
+  // ─── HEADER STATUS ──────────────────────────────
   const otherUserId = otherParticipant?.user_id || '';
-  const isOnline = isUserOnline(otherUserId);
+  const online = isUserOnline(otherUserId);
   const headerStatusText = typingUser
     ? 'Digitando...'
-    : isOnline
+    : online
     ? 'Online'
     : otherParticipant?.profiles?.last_seen
     ? `Visto por último ${new Date(otherParticipant.profiles.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : 'Offline';
 
+  // ════════════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════════════
   return (
     <div className="fixed inset-0 flex flex-col bg-[#E8EDF2] overflow-hidden" style={{ zIndex: 40 }}>
       {/* HEADER */}
@@ -504,14 +520,14 @@ export default function ChatRoom() {
               </p>
               <p
                 className={`text-[11px] font-semibold flex items-center gap-1 mt-0.5 ${
-                  typingUser ? 'text-amber-500' : isOnline ? 'text-green-500' : 'text-slate-400'
+                  typingUser ? 'text-amber-500' : online ? 'text-green-500' : 'text-slate-400'
                 }`}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
                     typingUser
                       ? 'bg-amber-500 animate-pulse'
-                      : isOnline
+                      : online
                       ? 'bg-green-500 animate-pulse'
                       : 'bg-slate-400'
                   }`}
@@ -534,7 +550,7 @@ export default function ChatRoom() {
         </div>
       </header>
 
-      {/* MESSAGES — fundo animado estilo Telegram */}
+      {/* MESSAGES */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto relative z-0 overscroll-y-contain px-2 sm:px-3 py-2 space-y-0"
@@ -557,8 +573,7 @@ export default function ChatRoom() {
           const isLastInGroup = !nextMsg || nextMsg.sender_id !== msg.sender_id;
           const showTime =
             index === 0 ||
-            new Date(msg.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() >
-              1800000;
+            new Date(msg.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 1800000;
           const repliedMsg = msg.reply_to ? messages.find(m => m.id === msg.reply_to) : null;
 
           return (
@@ -566,18 +581,14 @@ export default function ChatRoom() {
               {showTime && (
                 <div className="flex justify-center my-4">
                   <span className="px-4 py-1.5 bg-white/70 backdrop-blur-md rounded-full text-[10px] font-bold text-slate-500 tracking-wide shadow-sm border border-white/50">
-                    {new Date(msg.created_at).toLocaleDateString('pt-AO', {
-                      day: 'numeric',
-                      month: 'short',
-                    })}
+                    {new Date(msg.created_at).toLocaleDateString('pt-AO', { day: 'numeric', month: 'short' })}
                     {' • '}
-                    {new Date(msg.created_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
               )}
+
+              {/* ⭐ O overlay NÃO está aqui dentro! Só a bolha */}
               <MessageBubble
                 msg={{ ...msg, replied_message: repliedMsg as any }}
                 isMe={isMe}
@@ -592,6 +603,7 @@ export default function ChatRoom() {
                 resetPosition={resetPositionCounter}
                 activeMessageId={activeMessageId}
                 setActiveMessageId={handleSetActiveMessage}
+                onOpenActions={openMessageActions} // 👈 novo prop
               />
             </div>
           );
@@ -625,6 +637,22 @@ export default function ChatRoom() {
         <div ref={bottomRef} className="h-1" />
       </div>
 
+      {/* ⭐ OVERLAY GLOBAL – UMA ÚNICA INSTÂNCIA, FORA DO MAP */}
+      <AnimatePresence>
+        {activeMessage && (
+          <MessageActionsOverlay
+            message={activeMessage}
+            currentUserId={user?.id || ''}
+            otherParticipantName={otherParticipant?.profiles?.full_name}
+            onClose={closeMessageActions}
+            onReact={handleReact}
+            onReply={(msg) => { setReplyTo(msg); closeMessageActions(); }}
+            onEdit={(msg) => { setEditingMessage(msg); closeMessageActions(); }}
+            onDelete={(id) => { handleDeleteMessage(id); closeMessageActions(); }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* INPUT */}
       <div
         className="flex-shrink-0 bg-white border-t border-slate-100 z-50"
@@ -651,12 +679,8 @@ export default function ChatRoom() {
 
       <style jsx>{`
         @keyframes bgDrift {
-          0% {
-            background-position: 0 0, 0 0;
-          }
-          100% {
-            background-position: 0 0, 100px 100px;
-          }
+          0% { background-position: 0 0, 0 0; }
+          100% { background-position: 0 0, 100px 100px; }
         }
       `}</style>
     </div>
