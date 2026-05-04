@@ -10,7 +10,6 @@ import { supabase } from '@/lib/supabase';
 import { ChatInput } from '@/components/chat/chat-input';
 import { PollMessage } from '@/components/chat/poll-message';
 import { MessageBubble } from '@/components/chat/message-bubble';
-import { MessageActionsOverlay } from '@/components/chat/message-actions-overlay';
 import {
   uploadChatMedia,
   markMessagesAsSeen,
@@ -64,6 +63,10 @@ export default function ChatRoom() {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // ⭐ Presença online
+  const presenceChannelRef = useRef<any>(null);
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, any>>({});
+
   // ⭐ Conjunto de IDs inseridos localmente para evitar duplicação
   const recentlyInsertedRef = useRef<Set<string>>(new Set());
 
@@ -101,6 +104,75 @@ export default function ChatRoom() {
       return [...prev, { ...newMsg, reactions: [] }];
     });
   }, []);
+
+  // ─── PRESENÇA ONLINE ──────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase.channel('global-presence', {
+      config: {
+        presence: {
+          key: user.id,
+        },
+      },
+    });
+
+    channel.on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState();
+      setOnlineUsers(state);
+    });
+
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({
+          user_id: user.id,
+          online_at: new Date().toISOString(),
+        });
+      }
+    });
+
+    presenceChannelRef.current = channel;
+
+    return () => {
+      channel.unsubscribe();
+      // Atualiza o last_seen ao desligar
+      supabase
+        .from('profiles')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', user.id)
+        .then(({ error }) => {
+          if (error) console.error('Erro ao atualizar last_seen:', error);
+        });
+    };
+  }, [user]);
+
+  // Atualizar last_seen em caso de fecho abrupto (beforeunload)
+  useEffect(() => {
+    if (!user) return;
+    const handleBeforeUnload = () => {
+      // Envio síncrono (não garantido, mas ajuda)
+      const payload = JSON.stringify({
+        last_seen: new Date().toISOString(),
+      });
+      navigator.sendBeacon?.('/api/update-last-seen', payload);
+      // Alternativa com fetch bloqueante (menos fiável, mas funciona em alguns browsers)
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/update-last-seen', false); // síncrono
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(payload);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [user]);
+
+  // Função auxiliar
+  const isUserOnline = useCallback(
+    (userId: string) => {
+      return !!onlineUsers[userId];
+    },
+    [onlineUsers]
+  );
+  // ─── FIM PRESENÇA ────────────────────────────────────
 
   useEffect(() => {
     if (!conversationId || !user?.id) return;
@@ -153,7 +225,6 @@ export default function ChatRoom() {
             const newMsg = payload.new as Message;
             if (!newMsg?.id || newMsg.conversation_id !== conversationId) return;
 
-            // ⭐ Ignora se acabámos de inserir localmente
             if (recentlyInsertedRef.current.has(newMsg.id)) return;
 
             console.log('📩 Nova mensagem realtime:', newMsg);
@@ -165,7 +236,6 @@ export default function ChatRoom() {
           }
         );
 
-        // Updates (edit, delete, seen)
         channel.on(
           'postgres_changes',
           {
@@ -181,7 +251,6 @@ export default function ChatRoom() {
           }
         );
 
-        // Reactions
         channel.on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'message_reactions' },
@@ -195,7 +264,6 @@ export default function ChatRoom() {
           }
         );
 
-        // Typing
         channel.on('broadcast', { event: 'typing' }, ({ payload }: any) => {
           if (!isMounted || payload.userId === user!.id) return;
           setTypingUser(payload.typing ? payload.userName : null);
@@ -281,7 +349,6 @@ export default function ChatRoom() {
     }
   };
 
-  /* ✨ NOVA VERSÃO do sendTextMessage que impede duplicação */
   const sendTextMessage = async (content: string) => {
     if (!user || !conversationId) return;
 
@@ -324,13 +391,11 @@ export default function ChatRoom() {
       return;
     }
 
-    // ⭐ Regista o ID real para o realtime ignorar
     recentlyInsertedRef.current.add(inserted.id);
     setTimeout(() => {
       recentlyInsertedRef.current.delete(inserted.id);
     }, 5000);
 
-    // Substitui a mensagem temporária pela real
     setMessages(prev =>
       prev.map(m => (m.id === tempId ? { ...inserted, reactions: [] } : m))
     );
@@ -377,17 +442,6 @@ export default function ChatRoom() {
     });
   };
 
-const [activeMessage, setActiveMessage] = useState<Message | null>(null);
-
-const openMessageActions = useCallback((msg: Message) => {
-  setActiveMessage(msg);
-}, []);
-
-const closeMessageActions = useCallback(() => {
-  setActiveMessage(null);
-}, []);
-
-
   const handleDeleteMessage = async (id: string) => {
     await deleteMessage(id).catch(console.error);
   };
@@ -399,6 +453,17 @@ const closeMessageActions = useCallback(() => {
       </div>
     );
   }
+
+  // Determinar estado do cabeçalho
+  const otherUserId = otherParticipant?.user_id || '';
+  const isOnline = isUserOnline(otherUserId);
+  const headerStatusText = typingUser
+    ? 'Digitando...'
+    : isOnline
+    ? 'Online'
+    : otherParticipant?.profiles?.last_seen
+    ? `Visto por último ${new Date(otherParticipant.profiles.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : 'Offline';
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#E8EDF2] overflow-hidden" style={{ zIndex: 40 }}>
@@ -437,9 +502,21 @@ const closeMessageActions = useCallback(() => {
               <p className="font-bold text-[15px] text-slate-800 leading-none group-hover:text-blue-600 transition-colors">
                 {otherParticipant?.profiles?.full_name || 'Utilizador'}
               </p>
-              <p className="text-[11px] text-green-500 font-semibold flex items-center gap-1 mt-0.5">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                Online
+              <p
+                className={`text-[11px] font-semibold flex items-center gap-1 mt-0.5 ${
+                  typingUser ? 'text-amber-500' : isOnline ? 'text-green-500' : 'text-slate-400'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    typingUser
+                      ? 'bg-amber-500 animate-pulse'
+                      : isOnline
+                      ? 'bg-green-500 animate-pulse'
+                      : 'bg-slate-400'
+                  }`}
+                />
+                {headerStatusText}
               </p>
             </div>
           </button>
@@ -501,17 +578,6 @@ const closeMessageActions = useCallback(() => {
                   </span>
                 </div>
               )}
-              <MessageActionsOverlay
-                message={activeMessage}
-                currentUserId={user?.id || ''}
-                otherParticipantName={otherParticipant?.profiles?.full_name}
-                onClose={closeMessageActions}
-                onReact={handleReact}
-                onReply={setReplyTo}
-                onEdit={setEditingMessage}
-                onDelete={handleDeleteMessage}
-              />
-
               <MessageBubble
                 msg={{ ...msg, replied_message: repliedMsg as any }}
                 isMe={isMe}
@@ -583,7 +649,6 @@ const closeMessageActions = useCallback(() => {
         />
       </div>
 
-      {/* ⭐ Animação de fundo (precisa do estilo global) */}
       <style jsx>{`
         @keyframes bgDrift {
           0% {
