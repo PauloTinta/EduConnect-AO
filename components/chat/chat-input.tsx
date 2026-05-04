@@ -1,15 +1,16 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  Send, Plus, Smile, Image as ImageIcon, Mic, X, 
-  Loader2, BarChart2, Paperclip, Edit2, Reply, ChevronUp
+import {
+  Send, Plus, Smile, Image as ImageIcon, Mic, X,
+  Loader2, BarChart2, Paperclip, Edit2, Reply, Star
 } from 'lucide-react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker from 'emoji-picker-react';
 import { VoiceRecorder } from './voice-recorder';
 
+// --- mesmas props que o original ---
 interface ChatInputProps {
   onSendMessage: (content: string) => void;
   onSendMedia: (file: File, type: any) => void;
@@ -22,10 +23,11 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
 }
 
-export function ChatInput({ 
+export function ChatInput({
   onSendMessage, onSendMedia, onSendPoll, onSendVoice, onTyping,
-  replyTo, onCancelReply, editingMessage, onCancelEdit 
+  replyTo, onCancelReply, editingMessage, onCancelEdit
 }: ChatInputProps) {
+  // --- estados (inalterados) ---
   const [message, setMessage] = useState('');
   const [mediaPreview, setMediaPreview] = useState<{ file: File; url: string; type: string } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -83,6 +85,7 @@ export function ChatInput({
     setTimeout(() => setIsSending(false), 300);
   }, [message, mediaPreview, isSending, onSendMessage, onSendMedia]);
 
+  // --- handlers de arquivo, poll, etc (inalterados) ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -104,10 +107,10 @@ export function ChatInput({
 
   const canSend = message.trim().length > 0 || !!mediaPreview || !!editingMessage;
 
+  // ==================== UI PREMIUM ====================
   return (
     <div className="relative">
-
-      {/* Poll Creator */}
+      {/* Poll Creator (visual premium) */}
       <AnimatePresence>
         {showPollCreator && (
           <>
@@ -116,13 +119,13 @@ export function ChatInput({
             <motion.div
               initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
               transition={{ type: 'spring', damping: 25 }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2rem] p-6 shadow-2xl"
+              className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[2.5rem] p-6 shadow-2xl"
               style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="font-black text-slate-800 text-base flex items-center gap-2">
-                  <div className="w-8 h-8 bg-green-100 rounded-xl flex items-center justify-center">
-                    <BarChart2 size={16} className="text-green-600" />
+                  <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl flex items-center justify-center">
+                    <BarChart2 size={16} className="text-white" />
                   </div>
                   Criar Sondagem
                 </h3>
@@ -130,16 +133,17 @@ export function ChatInput({
                   <X size={18} />
                 </button>
               </div>
+              {/* inputs iguais, apenas com bordas mais suaves */}
               <input value={pollQuestion} onChange={e => setPollQuestion(e.target.value)}
                 placeholder="Qual é a tua pergunta?"
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 mb-4" />
+                className="w-full bg-[#F2F3F5] border border-transparent rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 mb-4" />
               <div className="space-y-2.5 mb-4">
                 {pollOptions.map((opt, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full border-2 border-slate-200 flex items-center justify-center text-xs font-black text-slate-400 flex-shrink-0">{i + 1}</span>
                     <input value={opt} onChange={e => { const u = [...pollOptions]; u[i] = e.target.value; setPollOptions(u); }}
                       placeholder={`Opção ${i + 1}`}
-                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                      className="flex-1 bg-[#F2F3F5] border border-transparent rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
                     {pollOptions.length > 2 && (
                       <button onClick={() => setPollOptions(p => p.filter((_, idx) => idx !== i))} className="text-slate-300 hover:text-red-400"><X size={16} /></button>
                     )}
@@ -154,7 +158,7 @@ export function ChatInput({
               )}
               <button onClick={handlePollSend}
                 disabled={!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2}
-                className="w-full py-3.5 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-blue-200 disabled:opacity-50 active:scale-95 transition-all">
+                className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-blue-200 disabled:opacity-50 active:scale-95 transition-all">
                 Publicar Sondagem
               </button>
             </motion.div>
@@ -168,7 +172,7 @@ export function ChatInput({
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-b border-slate-100">
             <div className="p-3">
-              <div className="relative rounded-2xl overflow-hidden bg-slate-100 max-h-48 flex items-center justify-center">
+              <div className="relative rounded-2xl overflow-hidden bg-[#F2F3F5] max-h-48 flex items-center justify-center">
                 {mediaPreview.type === 'image' && (
                   <Image src={mediaPreview.url} alt="Preview" width={400} height={200} className="w-full h-48 object-cover" unoptimized />
                 )}
@@ -193,7 +197,11 @@ export function ChatInput({
         {(replyTo || editingMessage) && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden">
-            <div className={`flex items-center gap-3 px-4 py-2.5 border-b ${editingMessage ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'}`}>
+            <div className={`flex items-center gap-3 px-4 py-2.5 border-b ${
+              editingMessage
+                ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-100'
+                : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100'
+            }`}>
               <div className={`w-1 h-8 rounded-full flex-shrink-0 ${editingMessage ? 'bg-amber-400' : 'bg-blue-500'}`} />
               <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 ${editingMessage ? 'bg-amber-100' : 'bg-blue-100'}`}>
                 {editingMessage ? <Edit2 size={14} className="text-amber-600" /> : <Reply size={14} className="text-blue-600" />}
@@ -225,7 +233,7 @@ export function ChatInput({
               initial={{ y: 16, opacity: 0, scale: 0.95 }} animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: 16, opacity: 0, scale: 0.95 }}
               transition={{ type: 'spring', damping: 25 }}
-              className="absolute bottom-full left-3 mb-3 bg-white rounded-[24px] shadow-2xl border border-slate-100 p-3 grid grid-cols-2 gap-2 z-50 w-[200px]"
+              className="absolute bottom-full left-3 mb-3 bg-white/95 backdrop-blur-sm rounded-[24px] shadow-2xl border border-slate-100 p-3 grid grid-cols-2 gap-2 z-50 w-[200px]"
             >
               <button onClick={() => { fileInputRef.current?.click(); setShowPlusMenu(false); }}
                 className="flex flex-col items-center gap-2 p-3 rounded-2xl hover:bg-blue-50 transition-all group active:scale-95">
@@ -246,23 +254,33 @@ export function ChatInput({
         )}
       </AnimatePresence>
 
-      {/* Main Input Row */}
+      {/* ⭐ MAIN INPUT ROW – ESTILO TELEGRAM PREMIUM ⭐ */}
       <div className="flex items-end gap-2 px-3 py-2.5">
+        {/* Botão + */}
         <motion.button whileTap={{ scale: 0.88 }}
           onClick={() => { setShowPlusMenu(!showPlusMenu); setShowEmojiPicker(false); }}
           className={`flex-shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center transition-all duration-200 ${
-            showPlusMenu ? 'bg-blue-600 text-white rotate-45' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+            showPlusMenu
+              ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rotate-45 shadow-lg'
+              : 'bg-[#F2F3F5] text-slate-500 hover:bg-slate-200'
           }`}>
           <Plus size={20} strokeWidth={2.5} />
         </motion.button>
 
+        {/* Campo de texto estilo Telegram */}
         <div className={`flex-1 flex items-end gap-1.5 rounded-[22px] px-3 py-2 transition-all min-w-0 ${
-          message.trim() ? 'bg-white border-2 border-blue-100 shadow-sm' : 'bg-slate-100'
+          message.trim()
+            ? 'bg-white border-2 border-blue-200 shadow-sm shadow-blue-100/50'
+            : 'bg-[#F2F3F5] border-2 border-transparent'
         }`}>
+          {/* Emoji */}
           <button onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowPlusMenu(false); }}
-            className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${showEmojiPicker ? 'text-yellow-500' : 'text-slate-400 hover:text-yellow-500'}`}>
+            className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${
+              showEmojiPicker ? 'text-yellow-500' : 'text-slate-400 hover:text-[#FFB02E]'
+            }`}>
             <Smile size={20} />
           </button>
+
           <textarea
             ref={textareaRef}
             value={message}
@@ -275,21 +293,33 @@ export function ChatInput({
           />
         </div>
 
+        {/* Botão Enviar / Microfone */}
         <AnimatePresence mode="wait">
           {canSend ? (
             <motion.button key="send"
               initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.6, opacity: 0 }} whileTap={{ scale: 0.88 }}
               onClick={handleSend} disabled={isSending}
-              className="flex-shrink-0 w-9 h-9 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200 transition-all">
-              {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} strokeWidth={2.5} className="ml-0.5 -mt-0.5" />}
+              className="flex-shrink-0 w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200 relative overflow-visible transition-all"
+            >
+              {isSending ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <>
+                  <Send size={18} strokeWidth={2.5} className="ml-0.5 -mt-0.5" />
+                  {/* ⭐ Emblema premium */}
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-full flex items-center justify-center shadow-md">
+                    <Star size={10} className="text-white fill-white" />
+                  </div>
+                </>
+              )}
             </motion.button>
           ) : (
             <motion.button key="mic"
               initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.6, opacity: 0 }} whileTap={{ scale: 0.88 }}
               onClick={() => setIsRecording(true)}
-              className="flex-shrink-0 w-9 h-9 bg-slate-100 text-slate-500 rounded-2xl flex items-center justify-center hover:bg-slate-200 transition-all">
+              className="flex-shrink-0 w-9 h-9 bg-[#F2F3F5] text-slate-500 rounded-2xl flex items-center justify-center hover:bg-slate-200 transition-all">
               <Mic size={20} />
             </motion.button>
           )}
