@@ -1,19 +1,11 @@
 'use client';
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useRef,
-  useCallback,
-  useMemo,
-} from 'react';
+
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { PWAInstallPrompt } from '@/components/pwa-install-prompt';
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
-
+import {createContext, useContext,useEffect,useState,useRef,useCallback,useMemo,} from 'react';
 type PresenceUser = {
   user_id: string;
   online_at: string;
@@ -36,11 +28,11 @@ type AuthContextType = {
 
   isOnline: (userId: string) => boolean;
 
-  startTyping: (
+  stopTyping: (
     conversationId: string
   ) => Promise<void>;
-
-  stopTyping: (
+  
+  startTyping: (
     conversationId: string
   ) => Promise<void>;
 
@@ -77,14 +69,14 @@ const presenceChannelRef =
   useRef<RealtimeChannel | null>(null);
 
 const heartbeatRef =
-  useRef<NodeJS.Timeout | null>(null);
+  useRef<ReturnType<typeof setInterval> | null>(null);
 
 const typingTimeoutRef =
-  useRef<NodeJS.Timeout | null>(null);
+  useRef<ReturnType<typeof setTimeout> | null>(null);
 const updateUserStatus = useCallback(
   async (
     isOnline: boolean,
-    lastSeen?: string,
+    lastSeen?: string
   ) => {
     if (!user) return;
 
@@ -157,7 +149,7 @@ const startTyping = useCallback(
         stopTyping(conversationId);
       }, 1500);
   },
-  [user],
+  [user, stopTyping],
 );
 
   
@@ -215,26 +207,25 @@ const startTyping = useCallback(
     { event: 'sync' },
     () => {
       const state =
-        channel.presenceState<PresenceUser>();
+  channel.presenceState<PresenceUser>();
 
       const formatted: OnlineUsersMap =
         {};
 
       Object.entries(state).forEach(
-        ([key, value]) => {
-          const presence =
-            value?.[0];
+  ([key, value]) => {
+    const presence = Array.isArray(value)
+      ? (value[0] as unknown as PresenceUser)
+      : null;
 
-          if (!presence) return;
+    if (!presence) return;
 
-          formatted[key] = {
-            user_id:
-              presence.user_id,
-            online_at:
-              presence.online_at,
-          };
-        },
-      );
+    formatted[key] = {
+      user_id: presence.user_id,
+      online_at: presence.online_at,
+    };
+  },
+);
 
       setOnlineUsers(formatted);
     },
@@ -243,7 +234,7 @@ const startTyping = useCallback(
   channel.on(
     'broadcast',
     { event: 'typing' },
-    ({ payload }) => {
+    ({ payload }:any) => {
       const {
         conversation_id,
         user_id,
@@ -350,7 +341,7 @@ const startTyping = useCallback(
 
     updateUserStatus(false);
 
-    channel.unsubscribe();
+    void channel.unsubscribe();
 
     presenceChannelRef.current =
       null;
